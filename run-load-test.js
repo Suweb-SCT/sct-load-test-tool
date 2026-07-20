@@ -1,4 +1,4 @@
-﻿const readline = require('readline');
+const readline = require('readline');
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -15,6 +15,17 @@ function ask(question, defaultVal) {
       resolve(answer.trim() || defaultVal || '');
     });
   });
+}
+
+// Keeps asking until the answer is a valid positive number.
+// Prevents bugs like typing "y" for a numeric field (which silently breaks k6 thresholds).
+async function askNumber(question, defaultVal) {
+  while (true) {
+    const answer = await ask(question, defaultVal);
+    const num = parseFloat(answer);
+    if (!Number.isNaN(num) && num > 0) return answer;
+    console.log(`   \u26A0\uFE0F  "${answer}" is not a valid number. Please enter a number (e.g. 10, 500, 1.5).`);
+  }
 }
 
 // Opens a file with the OS default app (PDF viewer / browser)
@@ -50,11 +61,11 @@ async function main() {
   }
 
   const token = await ask('3) API Token (Bearer) - leave blank and press Enter if none', '');
-  const startVU = await ask('4) Starting number of Virtual Users (N)', '10');
+  const startVU = await askNumber('4) Starting number of Virtual Users (N)', '10');
   const rampTime = await ask('5) Ramp-up duration (e.g. 30s, 2m)', '30s');
-  const targetVU = await ask('6) Maximum Virtual Users to ramp up to (M)', '50');
-  const maxResponseTime = await ask('7) Response time threshold in ms (X)', '500');
-  const maxErrorRate = await ask('8) Error rate threshold in % (Y)', '1');
+  const targetVU = await askNumber('6) Maximum Virtual Users to ramp up to (M)', '50');
+  const maxResponseTime = await askNumber('7) Response time threshold in ms (X)', '500');
+  const maxErrorRate = await askNumber('8) Error rate threshold in % (Y)', '1');
 
   rl.close();
 
