@@ -14,6 +14,13 @@ const config = fs.existsSync(CONFIG_PATH)
   ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'))
   : {};
 
+const LOGO_PATH = 'logo.png';
+let logoDataUri = '';
+if (fs.existsSync(LOGO_PATH)) {
+  const logoBase64 = fs.readFileSync(LOGO_PATH).toString('base64');
+  logoDataUri = `data:image/png;base64,${logoBase64}`;
+}
+
 const metrics = summary.metrics || {};
 function getValues(name) {
   return metrics[name] ? metrics[name].values : null;
@@ -70,7 +77,6 @@ const data = {
   generatedAt: new Date().toLocaleString(),
 };
 
-// ─── Pure SVG gauge (no external library, works fully offline) ────────────
 function svgGauge(value, color) {
   const clamped = Math.max(0, Math.min(100, value));
   const r = 70, cx = 90, cy = 85;
@@ -86,8 +92,6 @@ function svgGauge(value, color) {
   </svg>`;
 }
 
-// ─── Pure SVG bar chart — threshold line drawn cleanly, label kept outside
-//     the plotted area (as an HTML legend row) so it never overlaps bars ───
 function svgBarChart(bars, thresholdValue) {
   const width = 560, height = 200, padBottom = 26, padTop = 20, gap = 40, barWidth = 60;
   const maxVal = Math.max(...bars.map((b) => b.value), thresholdValue || 0, 1) * 1.15;
@@ -102,7 +106,7 @@ function svgBarChart(bars, thresholdValue) {
     return `
       <rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" fill="${b.color}" rx="4"/>
       <text x="${x + barWidth / 2}" y="${y - 8}" text-anchor="middle" font-size="12" fill="#2B2B2B" font-weight="600">${b.value}ms</text>
-      <text x="${x + barWidth / 2}" y="${height - 6}" text-anchor="middle" font-size="12" fill="#8A8A8A">${b.label}</text>`;
+      <text x="${x + barWidth / 2}" y="${height - 6}" text-anchor="middle" font-size="12" font-weight="600" fill="#2B2B2B">${b.label}</text>`;
   }).join('');
 
   let thresholdSvg = '';
@@ -131,30 +135,32 @@ const html = `<!DOCTYPE html>
 <title>API Load Test Dashboard</title>
 <style>
   :root {
-    --orange: #E8A33D; --blue: #3D9BE8; --green: #2E9E4F; --red: #D9534F;
-    --dark: #2B2B2B; --gray: #8A8A8A; --bg: #F4F5F7; --card-bg: #FFFFFF;
+    --orange: #FFA600; --blue: #005981; --green: #2E9E4F; --red: #D9534F;
+    --dark: #2B2B2B; --gray: #8A8A8A; --bg: #FFFFFF; --card-bg: #FFFFFF; --card-border: #E5E5E5; --panel-bg: #F7F9FA;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--dark); padding: 32px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
-  h1 { margin: 0; font-size: 26px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+  .logo { height: 34px; }
+  h1 { margin: 0; font-size: 26px; color: var(--blue); }
   .subtitle { color: var(--gray); font-size: 13px; margin-top: 4px; }
   .status-badge { padding: 8px 18px; border-radius: 20px; font-weight: 700; font-size: 14px; color: white; white-space: nowrap; }
   .status-badge.pass { background: var(--green); }
   .status-badge.fail { background: var(--red); }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px; align-items: start; }
-  .card { background: var(--card-bg); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; min-width: 0; }
-  .card h3 { margin: 0 0 12px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gray); }
+  .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; min-width: 0; }
+  .card h3 { margin: 0 0 12px 0; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dark); }
   .gauge-wrap { position: relative; height: 100px; display: flex; justify-content: center; }
   .gauge-value { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); font-size: 26px; font-weight: 700; }
-  .gauge-label { text-align: center; margin-top: 20px; font-size: 13px; color: var(--gray); }
+  .gauge-label { text-align: center; margin-top: 20px; font-size: 13px; color: var(--dark); }
   .kpi-row { display: flex; gap: 12px; }
-  .kpi-box { flex: 1; text-align: center; padding: 12px 8px; border-radius: 8px; background: var(--bg); min-width: 0; }
+  .kpi-box { flex: 1; text-align: center; padding: 12px 8px; border-radius: 8px; background: var(--panel-bg); min-width: 0; }
   .kpi-box .num { font-size: 22px; font-weight: 700; }
-  .kpi-box .lbl { font-size: 11px; color: var(--gray); margin-top: 2px; }
+  .kpi-box .lbl { font-size: 11px; color: var(--dark); margin-top: 2px; }
   .wide-card { grid-column: 1 / -1; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 8px 10px; background: var(--bg); color: var(--gray); font-weight: 600; }
+  th { text-align: left; padding: 8px 10px; background: var(--panel-bg); color: var(--dark); font-weight: 600; }
   td { padding: 8px 10px; border-bottom: 1px solid #EEE; }
   .pass-text { color: var(--green); font-weight: 600; }
   .fail-text { color: var(--red); font-weight: 600; }
@@ -164,7 +170,7 @@ const html = `<!DOCTYPE html>
   .endpoint-box {
     font-family: "SF Mono", Consolas, monospace;
     font-size: 11.5px;
-    background: var(--bg);
+    background: var(--panel-bg);
     padding: 8px 10px;
     border-radius: 6px;
     overflow-wrap: anywhere;
@@ -173,7 +179,7 @@ const html = `<!DOCTYPE html>
     overflow-y: auto;
     line-height: 1.5;
   }
-  .chart-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--gray); margin-bottom: 4px; }
+  .chart-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dark); margin-bottom: 4px; }
   .chart-legend .dash-line { width: 20px; height: 0; border-top: 2px dashed var(--dark); display: inline-block; }
 </style>
 </head>
@@ -183,7 +189,10 @@ const html = `<!DOCTYPE html>
     <h1>API Load Test Dashboard</h1>
     <div class="subtitle">Generated ${data.generatedAt}</div>
   </div>
-  <div class="status-badge ${data.overallPass ? 'pass' : 'fail'}">${data.overallPass ? '\u2713 PASS' : '\u2717 FAIL'}</div>
+  <div class="header-right">
+    ${logoDataUri ? `<img class="logo" src="${logoDataUri}" alt="Company logo">` : ''}
+    <div class="status-badge ${data.overallPass ? 'pass' : 'fail'}">${data.overallPass ? '\u2713 PASS' : '\u2717 FAIL'}</div>
+  </div>
 </div>
 
 <div class="grid">
