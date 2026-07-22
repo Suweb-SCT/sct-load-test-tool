@@ -3,6 +3,8 @@ const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+const MODULES_PATH = 'modules.json';
+
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
@@ -26,6 +28,82 @@ async function askNumber(question, defaultVal) {
   }
 }
 
+async function askChoice(question, options) {
+  console.log(`\n${question}`);
+  options.forEach((opt, i) => console.log(`   ${i + 1}) ${opt}`));
+  while (true) {
+    const answer = await ask(`Enter a number (1-${options.length})`);
+    const num = parseInt(answer, 10);
+    if (!Number.isNaN(num) && num >= 1 && num <= options.length) return num - 1;
+    console.log(`   \u26A0\uFE0F  Please enter a number between 1 and ${options.length}.`);
+  }
+}
+
+function loadModules() {
+  if (!fs.existsSync(MODULES_PATH)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8'));
+  } catch (e) {
+    console.log('   \u26A0\uFE0F  modules.json is corrupted or unreadable, starting fresh.');
+    return {};
+  }
+}
+
+function saveModules(modules) {
+  fs.writeFileSync(MODULES_PATH, JSON.stringify(modules, null, 2), 'utf-8');
+}
+
+async function pickEndpoint() {
+  const modules = loadModules();
+  const moduleNames = Object.keys(modules);
+
+  let moduleName;
+  if (moduleNames.length === 0) {
+    console.log('\n\u{1F4E6}  No modules saved yet — let\'s add your first one.');
+    moduleName = await addNewModule(modules);
+  } else {
+    const options = [...moduleNames, '+ Add a new module'];
+    const choice = await askChoice('1) Which module do you want to test?', options);
+    if (choice === moduleNames.length) {
+      moduleName = await addNewModule(modules);
+    } else {
+      moduleName = moduleNames[choice];
+    }
+  }
+
+  const mod = modules[moduleName];
+  const subsectionNames = Object.keys(mod.endpoints);
+  const subOptions = [...subsectionNames, '+ Add a new API/subsection to this module'];
+  const subChoice = await askChoice(`   Which API/subsection inside "${moduleName}"?`, subOptions);
+
+  let subsectionName;
+  if (subChoice === subsectionNames.length) {
+    subsectionName = await addNewSubsection(modules, moduleName);
+  } else {
+    subsectionName = subsectionNames[subChoice];
+  }
+
+  const fullEndpoint = mod.baseUrl.replace(/\/$/, '') + modules[moduleName].endpoints[subsectionName];
+  return fullEndpoint;
+}
+
+async function addNewModule(modules) {
+  const moduleName = await ask('   New module name (e.g. basevisu)');
+  const baseUrl = await ask('   Base URL for this module (e.g. https://demo.schertech.com)');
+  modules[moduleName] = { baseUrl, endpoints: {} };
+  const subsectionName = await addNewSubsection(modules, moduleName);
+  return moduleName;
+}
+
+async function addNewSubsection(modules, moduleName) {
+  const subsectionName = await ask('   New API/subsection name (e.g. equipment, machines)');
+  const endpointPath = await ask('   API path (e.g. /odata/EquipmentStatuses?$top=40)');
+  modules[moduleName].endpoints[subsectionName] = endpointPath;
+  saveModules(modules);
+  console.log(`   \u2713 Saved "${subsectionName}" under module "${moduleName}" — it'll show up as a choice next time.`);
+  return subsectionName;
+}
+
 function openFile(filePath) {
   const platform = process.platform;
   const absPath = path.resolve(filePath);
@@ -43,7 +121,9 @@ function openFile(filePath) {
 async function main() {
   console.log('\n\u{1F4CB}  Load Test Configuration - please answer the following questions\n');
 
-  const endpoint = await ask('1) API Endpoint URL', 'https://your-api.com/api/equipments');
+  const endpoint = await pickEndpoint();
+  console.log(`\n   \u2192 Endpoint selected: ${endpoint}\n`);
+
   const method = (await ask('2) HTTP Method (GET/POST/PUT/DELETE)', 'GET')).toUpperCase();
 
   let body = '{}';
