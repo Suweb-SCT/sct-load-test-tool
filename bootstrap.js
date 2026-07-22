@@ -32,6 +32,7 @@ const FILES = [
   'show-report.js',
   'load-tests/load-test.js',
   'logo.png',
+  'modules.json',
 ];
 const BINARY_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf'];
 
