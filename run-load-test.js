@@ -17,8 +17,6 @@ function ask(question, defaultVal) {
   });
 }
 
-// Keeps asking until the answer is a valid positive number.
-// Prevents bugs like typing "y" for a numeric field (which silently breaks k6 thresholds).
 async function askNumber(question, defaultVal) {
   while (true) {
     const answer = await ask(question, defaultVal);
@@ -28,24 +26,17 @@ async function askNumber(question, defaultVal) {
   }
 }
 
-// Opens a file with the OS default app (PDF viewer / browser)
 function openFile(filePath) {
   const platform = process.platform;
   const absPath = path.resolve(filePath);
-
-  let cmd;
-  let args;
+  let cmd, args;
   if (platform === 'win32') {
-    cmd = 'cmd';
-    args = ['/c', 'start', '""', absPath];
+    cmd = 'cmd'; args = ['/c', 'start', '""', absPath];
   } else if (platform === 'darwin') {
-    cmd = 'open';
-    args = [absPath];
+    cmd = 'open'; args = [absPath];
   } else {
-    cmd = 'xdg-open';
-    args = [absPath];
+    cmd = 'xdg-open'; args = [absPath];
   }
-
   spawn(cmd, args, { stdio: 'ignore', detached: true }).unref();
 }
 
@@ -78,30 +69,17 @@ async function main() {
 
   fs.writeFileSync(
     'reports/last-run-config.json',
-    JSON.stringify(
-      { endpoint, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate },
-      null,
-      2
-    )
+    JSON.stringify({ endpoint, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate }, null, 2)
   );
 
   const env = {
     ...process.env,
-    ENDPOINT: endpoint,
-    METHOD: method,
-    BODY: body,
-    API_TOKEN: token,
-    START_VU: startVU,
-    RAMP_TIME: rampTime,
-    TARGET_VU: targetVU,
-    MAX_RESPONSE_TIME: maxResponseTime,
-    MAX_ERROR_RATE: maxErrorRate,
+    ENDPOINT: endpoint, METHOD: method, BODY: body, API_TOKEN: token,
+    START_VU: startVU, RAMP_TIME: rampTime, TARGET_VU: targetVU,
+    MAX_RESPONSE_TIME: maxResponseTime, MAX_ERROR_RATE: maxErrorRate,
   };
 
-  const k6 = spawn('k6', ['run', 'load-tests/load-test.js'], {
-    stdio: 'inherit',
-    env,
-  });
+  const k6 = spawn('k6', ['run', 'load-tests/load-test.js'], { stdio: 'inherit', env });
 
   k6.on('error', (err) => {
     console.error('\n\u274C  Failed to run k6. Check whether k6 is installed (run: k6 version).');
@@ -110,16 +88,24 @@ async function main() {
   });
 
   k6.on('close', (code) => {
-    console.log('\n\u{1F4C4}  Building PDF report...');
-    const result = spawnSync('node', ['generate-pdf-report.js'], { stdio: 'inherit' });
+    console.log('\n\u{1F4CA}  Building dashboard...');
+    const htmlResult = spawnSync('node', ['generate-html-report.js'], { stdio: 'inherit' });
+    const pdfResult = spawnSync('node', ['generate-pdf-report.js'], { stdio: 'inherit' });
 
-    const reportPath = 'reports/load-test-report.pdf';
-    if (result.status === 0 && fs.existsSync(reportPath)) {
-      console.log('\u{1F4CA}  Opening PDF report...');
-      openFile(reportPath);
+    const htmlPath = 'reports/load-test-dashboard.html';
+    if (htmlResult.status === 0 && fs.existsSync(htmlPath)) {
+      console.log('\u{1F310}  Opening dashboard in browser...');
+      openFile(htmlPath);
     } else {
-      console.log('\u26A0\uFE0F  Could not generate the PDF report - check the errors above.');
+      console.log('\u26A0\uFE0F  Could not generate the HTML dashboard - check the errors above.');
     }
+
+    if (pdfResult.status !== 0) {
+      console.log('\u26A0\uFE0F  Could not generate the PDF report - check the errors above.');
+    } else {
+      console.log('\u{1F4C4}  PDF also saved to reports/load-test-report.pdf (for sharing/printing).');
+    }
+
     process.exit(code);
   });
 }
