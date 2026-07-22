@@ -100,10 +100,12 @@ async function main() {
       console.log('\u26A0\uFE0F  Could not generate the HTML dashboard - check the errors above.');
     }
 
-    if (pdfResult.status !== 0) {
-      console.log('\u26A0\uFE0F  Could not generate the PDF report - check the errors above.');
+    const pdfPath = 'reports/load-test-report.pdf';
+    if (pdfResult.status === 0 && fs.existsSync(pdfPath)) {
+      console.log('\u{1F4C4}  Opening PDF report...');
+      openFile(pdfPath);
     } else {
-      console.log('\u{1F4C4}  PDF also saved to reports/load-test-report.pdf (for sharing/printing).');
+      console.log('\u26A0\uFE0F  Could not generate the PDF report - check the errors above.');
     }
 
     process.exit(code);
