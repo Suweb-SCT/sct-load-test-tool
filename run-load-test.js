@@ -88,16 +88,16 @@ async function pickEndpoint() {
 }
 
 async function addNewModule(modules) {
-  const moduleName = await ask('   New module name (e.g. basevisu)');
-  const baseUrl = await ask('   Base URL for this module (e.g. https://demo.schertech.com)');
+  const moduleName = await ask('   New module name');
+  const baseUrl = await ask('   Base URL for this module');
   modules[moduleName] = { baseUrl, endpoints: {} };
   const subsectionName = await addNewSubsection(modules, moduleName);
   return moduleName;
 }
 
 async function addNewSubsection(modules, moduleName) {
-  const subsectionName = await ask('   New API/subsection name (e.g. equipment, machines)');
-  const endpointPath = await ask('   API path (e.g. /odata/EquipmentStatuses?$top=40)');
+  const subsectionName = await ask('   New API/subsection name');
+  const endpointPath = await ask('   API path');
   modules[moduleName].endpoints[subsectionName] = endpointPath;
   saveModules(modules);
   console.log(`   \u2713 Saved "${subsectionName}" under module "${moduleName}" — it'll show up as a choice next time.`);
