@@ -104,17 +104,40 @@ async function addNewSubsection(modules, moduleName) {
   return subsectionName;
 }
 
+// Windows: try to launch Google Chrome directly (Chrome can display both
+// .html and .pdf files). Falls back to explorer.exe (default app) if Chrome
+// isn't found at any of the usual install locations.
+const CHROME_PATHS_WIN = [
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+];
+
+function findChromeWin() {
+  return CHROME_PATHS_WIN.find((p) => p && fs.existsSync(p));
+}
+
 function openFile(filePath) {
   const platform = process.platform;
   const absPath = path.resolve(filePath);
   let cmd, args;
+
   if (platform === 'win32') {
-    cmd = 'explorer'; args = [absPath];
+    const chromePath = findChromeWin();
+    if (chromePath) {
+      cmd = chromePath;
+      args = [absPath];
+    } else {
+      console.log('   \u26A0\uFE0F  Google Chrome not found at the usual install paths — falling back to the default app.');
+      cmd = 'explorer';
+      args = [absPath];
+    }
   } else if (platform === 'darwin') {
-    cmd = 'open'; args = [absPath];
+    cmd = 'open'; args = ['-a', 'Google Chrome', absPath];
   } else {
-    cmd = 'xdg-open'; args = [absPath];
+    cmd = 'google-chrome'; args = [absPath];
   }
+
   const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
   child.on('error', (err) => {
     console.log(`   \u26A0\uFE0F  Could not auto-open ${absPath}: ${err.message}`);
