@@ -216,7 +216,10 @@ async function main() {
       console.log('\u26A0\uFE0F  Could not generate the PDF report - check the errors above.');
     }
 
-    process.exit(code);
+    // On Windows, exiting immediately can kill the just-spawned Chrome
+    // process before it finishes detaching (a known Node/Windows job-object
+    // quirk). A short delay here lets it fully start first.
+    setTimeout(() => process.exit(code), 1500);
   });
 }
 
