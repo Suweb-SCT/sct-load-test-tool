@@ -24,7 +24,7 @@ async function askNumber(question, defaultVal) {
     const answer = await ask(question, defaultVal);
     const num = parseFloat(answer);
     if (!Number.isNaN(num) && num > 0) return answer;
-    console.log(`   \u26A0\uFE0F  "${answer}" is not a valid number. Please enter a number (e.g. 10, 500, 1.5).`);
+    console.log(`   ⚠️  "${answer}" is not a valid number. Please enter a number (e.g. 10, 500, 1.5).`);
   }
 }
 
@@ -35,7 +35,7 @@ async function askChoice(question, options) {
     const answer = await ask(`Enter a number (1-${options.length})`);
     const num = parseInt(answer, 10);
     if (!Number.isNaN(num) && num >= 1 && num <= options.length) return num - 1;
-    console.log(`   \u26A0\uFE0F  Please enter a number between 1 and ${options.length}.`);
+    console.log(`   ⚠️  Please enter a number between 1 and ${options.length}.`);
   }
 }
 
@@ -44,7 +44,7 @@ function loadModules() {
   try {
     return JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8'));
   } catch (e) {
-    console.log('   \u26A0\uFE0F  modules.json is corrupted or unreadable, starting fresh.');
+    console.log('   ⚠️  modules.json is corrupted or unreadable, starting fresh.');
     return {};
   }
 }
@@ -59,7 +59,7 @@ async function pickEndpoint() {
 
   let moduleName;
   if (moduleNames.length === 0) {
-    console.log('\n\u{1F4E6}  No modules saved yet — let\'s add your first one.');
+    console.log('\n📦  No modules saved yet — let\'s add your first one.');
     moduleName = await addNewModule(modules);
   } else {
     const options = [...moduleNames, '+ Add a new module'];
@@ -81,8 +81,6 @@ async function pickEndpoint() {
     subsectionName = await addNewSubsection(modules, moduleName);
   } else {
     subsectionName = subsectionNames[subChoice];
-    // Existing subsection picked — let the user keep it as-is or edit it,
-    // rather than being stuck with whatever was saved before.
     const currentPath = modules[moduleName].endpoints[subsectionName];
     const currentFull = mod.baseUrl.replace(/\/$/, '') + currentPath;
     console.log(`\n   Saved endpoint: ${currentFull}`);
@@ -94,12 +92,12 @@ async function pickEndpoint() {
       const newPath = await ask('   New API path');
       modules[moduleName].endpoints[subsectionName] = newPath;
       saveModules(modules);
-      console.log(`   \u2713 Updated "${subsectionName}" under module "${moduleName}".`);
+      console.log(`   ✓ Updated "${subsectionName}" under module "${moduleName}".`);
     }
   }
 
   const fullEndpoint = mod.baseUrl.replace(/\/$/, '') + modules[moduleName].endpoints[subsectionName];
-  return fullEndpoint;
+  return { endpoint: fullEndpoint, moduleName, subsectionName };
 }
 
 async function addNewModule(modules) {
@@ -115,13 +113,10 @@ async function addNewSubsection(modules, moduleName) {
   const endpointPath = await ask('   API path');
   modules[moduleName].endpoints[subsectionName] = endpointPath;
   saveModules(modules);
-  console.log(`   \u2713 Saved "${subsectionName}" under module "${moduleName}" — it'll show up as a choice next time.`);
+  console.log(`   ✓ Saved "${subsectionName}" under module "${moduleName}" — it'll show up as a choice next time.`);
   return subsectionName;
 }
 
-// Windows: try to launch Google Chrome directly (Chrome can display both
-// .html and .pdf files). Falls back to explorer.exe (default app) if Chrome
-// isn't found at any of the usual install locations.
 const CHROME_PATHS_WIN = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
@@ -143,7 +138,7 @@ function openFile(filePath) {
       cmd = chromePath;
       args = [absPath];
     } else {
-      console.log('   \u26A0\uFE0F  Google Chrome not found at the usual install paths — falling back to the default app.');
+      console.log('   ⚠️  Google Chrome not found at the usual install paths — falling back to the default app.');
       cmd = 'explorer';
       args = [absPath];
     }
@@ -155,17 +150,17 @@ function openFile(filePath) {
 
   const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
   child.on('error', (err) => {
-    console.log(`   \u26A0\uFE0F  Could not auto-open ${absPath}: ${err.message}`);
+    console.log(`   ⚠️  Could not auto-open ${absPath}: ${err.message}`);
     console.log('      Open it manually by double-clicking the file in File Explorer.');
   });
   child.unref();
 }
 
 async function main() {
-  console.log('\n\u{1F4CB}  Load Test Configuration - please answer the following questions\n');
+  console.log('\n📋  Load Test Configuration - please answer the following questions\n');
 
-  const endpoint = await pickEndpoint();
-  console.log(`\n   \u2192 Endpoint selected: ${endpoint}\n`);
+  const { endpoint, moduleName, subsectionName } = await pickEndpoint();
+  console.log(`\n   → Endpoint selected: ${endpoint}\n`);
 
   const method = (await ask('2) HTTP Method (GET/POST/PUT/DELETE)', 'GET')).toUpperCase();
 
@@ -183,7 +178,7 @@ async function main() {
 
   rl.close();
 
-  console.log('\n\u{1F680}  Configuration complete. Starting k6 load test...\n');
+  console.log('\n🚀  Configuration complete. Starting k6 load test...\n');
   console.log(`   Endpoint : ${method} ${endpoint}`);
   console.log(`   VU       : ${startVU} -> ${targetVU} (ramp: ${rampTime})`);
   console.log(`   Threshold: p95 < ${maxResponseTime}ms, error rate < ${maxErrorRate}%\n`);
@@ -192,7 +187,7 @@ async function main() {
 
   fs.writeFileSync(
     'reports/last-run-config.json',
-    JSON.stringify({ endpoint, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate }, null, 2)
+    JSON.stringify({ endpoint, moduleName, subsectionName, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate }, null, 2)
   );
 
   const env = {
@@ -205,35 +200,32 @@ async function main() {
   const k6 = spawn('k6', ['run', 'load-tests/load-test.js'], { stdio: 'inherit', env });
 
   k6.on('error', (err) => {
-    console.error('\n\u274C  Failed to run k6. Check whether k6 is installed (run: k6 version).');
+    console.error('\n❌  Failed to run k6. Check whether k6 is installed (run: k6 version).');
     console.error(err.message);
     process.exit(1);
   });
 
   k6.on('close', (code) => {
-    console.log('\n\u{1F4CA}  Building dashboard...');
+    console.log('\n📊  Building dashboard...');
     const htmlResult = spawnSync('node', ['generate-html-report.js'], { stdio: 'inherit' });
     const pdfResult = spawnSync('node', ['generate-pdf-report.js'], { stdio: 'inherit' });
 
     const htmlPath = 'reports/load-test-dashboard.html';
     if (htmlResult.status === 0 && fs.existsSync(htmlPath)) {
-      console.log('\u{1F310}  Opening dashboard in browser...');
+      console.log('🌐  Opening dashboard in browser...');
       openFile(htmlPath);
     } else {
-      console.log('\u26A0\uFE0F  Could not generate the HTML dashboard - check the errors above.');
+      console.log('⚠️  Could not generate the HTML dashboard - check the errors above.');
     }
 
     const pdfPath = 'reports/load-test-report.pdf';
     if (pdfResult.status === 0 && fs.existsSync(pdfPath)) {
-      console.log('\u{1F4C4}  Opening PDF report...');
+      console.log('📄  Opening PDF report...');
       openFile(pdfPath);
     } else {
-      console.log('\u26A0\uFE0F  Could not generate the PDF report - check the errors above.');
+      console.log('⚠️  Could not generate the PDF report - check the errors above.');
     }
 
-    // On Windows, exiting immediately can kill the just-spawned Chrome
-    // process before it finishes detaching (a known Node/Windows job-object
-    // quirk). A short delay here lets it fully start first.
     setTimeout(() => process.exit(code), 1500);
   });
 }
