@@ -55,10 +55,15 @@ const thresholdMs = parseFloat((durationInfo.expressions[0] || '').match(/<\s*([
 const checksPassRate = Math.round((checksAgg.rate || 0) * 100);
 const errorRatePct = Math.round((reqFailed.rate || 0) * 10000) / 100;
 
+const reportTitle = (config.moduleName && config.subsectionName)
+  ? `${config.moduleName} — ${config.subsectionName}`
+  : 'API Load Test Dashboard';
+
 const data = {
   overallPass,
+  reportTitle,
   endpoint: `${config.method || '-'} ${config.endpoint || '-'}`,
-  vu: `${config.startVU || '-'} \u2192 ${config.targetVU || '-'} (ramp ${config.rampTime || '-'})`,
+  vu: `${config.startVU || '-'} → ${config.targetVU || '-'} (ramp ${config.rampTime || '-'})`,
   thresholdMs,
   maxErrorRate: config.maxErrorRate || '-',
   totalRequests: reqs.count || 0,
@@ -132,7 +137,7 @@ const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>API Load Test Dashboard</title>
+<title>${data.reportTitle}</title>
 <style>
   :root {
     --orange: #FFA600; --blue: #005981; --green: #2E9E4F; --red: #D9534F;
@@ -186,12 +191,13 @@ const html = `<!DOCTYPE html>
 <body>
 <div class="header">
   <div>
-    <h1>API Load Test Dashboard</h1>
+    <h1>${data.reportTitle}</h1>
+    ${data.reportTitle !== 'API Load Test Dashboard' ? '<div class="subtitle">API Load Test Dashboard</div>' : ''}
     <div class="subtitle">Generated ${data.generatedAt}</div>
   </div>
   <div class="header-right">
     ${logoDataUri ? `<img class="logo" src="${logoDataUri}" alt="Company logo">` : ''}
-    <div class="status-badge ${data.overallPass ? 'pass' : 'fail'}">${data.overallPass ? '\u2713 PASS' : '\u2717 FAIL'}</div>
+    <div class="status-badge ${data.overallPass ? 'pass' : 'fail'}">${data.overallPass ? '✓ PASS' : '✗ FAIL'}</div>
   </div>
 </div>
 
