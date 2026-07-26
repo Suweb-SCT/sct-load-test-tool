@@ -1,298 +1,344 @@
+// run-progressive-load-test.js
+// ─────────────────────────────────────────────────────────────
+// Runs a SERIES of load tests, ramping the target Virtual User count up
+// step by step (30 -> 50 -> 75 -> 100 -> 150 -> 200 by default), without
+// needing to re-run a command or re-answer questions for each step.
+//
+// This is a completely SEPARATE, ADDITIVE script — it does not modify
+// run-load-test.js, generate-pdf-report.js, generate-html-report.js, or
+// load-tests/load-test.js in any way, so nothing that already works can
+// break. It reuses those same files as-is.
+//
+// Usage:
+//     node run-progressive-load-test.js
+// ─────────────────────────────────────────────────────────────
+
+const readline = require('readline');
+const { spawn, spawnSync } = require('child_process');
+const path = require('path');
 const fs = require('fs');
-const PDFDocument = require('pdfkit');
 
-const SUMMARY_PATH = 'reports/summary.json';
-const CONFIG_PATH = 'reports/last-run-config.json';
-const OUTPUT_PATH = 'reports/load-test-report.pdf';
+const MODULES_PATH = 'modules.json';
+const PROGRESSIVE_DIR = 'reports/progressive';
 
-if (!fs.existsSync(SUMMARY_PATH)) {
-  console.error('Error: reports/summary.json not found - did the k6 run finish successfully?');
-  process.exit(1);
-}
+// Edit this array to change the ramp progression (must be ascending).
+const VU_STEPS = [30, 50, 75, 100, 150, 200];
 
-const summary = JSON.parse(fs.readFileSync(SUMMARY_PATH, 'utf-8'));
-const config = fs.existsSync(CONFIG_PATH)
-  ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'))
-  : {};
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-const metrics = summary.metrics || {};
-function getMetricValues(name) { return metrics[name] ? metrics[name].values : null; }
-function fmt(num, unit = '') {
-  if (num === undefined || num === null || Number.isNaN(num)) return '-';
-  return `${Math.round(num * 100) / 100}${unit}`;
-}
-function thresholdInfo(name) {
-  const m = metrics[name];
-  if (!m || !m.thresholds) return { passed: null, expressions: [] };
-  const expressions = Object.keys(m.thresholds);
-  const passed = Object.values(m.thresholds).every((t) => t.ok !== false);
-  return { passed, expressions };
-}
-function friendlyThreshold(expr) {
-  if (!expr) return '-';
-  const rateMatch = expr.match(/^rate\s*<\s*([\d.]+)/);
-  if (rateMatch) return `error rate < ${(parseFloat(rateMatch[1]) * 100).toFixed(2)} %`;
-  const durMatch = expr.match(/^(p\(\d+\))\s*<\s*([\d.]+)/);
-  if (durMatch) return `${durMatch[1]} < ${durMatch[2]} ms`;
-  return expr;
-}
-
-const reqDuration = getMetricValues('http_req_duration') || {};
-const reqFailed = getMetricValues('http_req_failed') || {};
-const reqs = getMetricValues('http_reqs') || {};
-const checksAgg = getMetricValues('checks') || {};
-
-const durationInfo = thresholdInfo('http_req_duration');
-const errorInfo = thresholdInfo('http_req_failed');
-const overallPass = durationInfo.passed !== false && errorInfo.passed !== false;
-
-function collectChecks(group, acc) {
-  if (!group) return acc;
-  (group.checks || []).forEach((c) => acc.push(c));
-  (group.groups ? Object.values(group.groups) : []).forEach((g) => collectChecks(g, acc));
-  return acc;
-}
-const checksList = collectChecks(summary.root_group, []);
-
-const checksPassRate = Math.round((checksAgg.rate || 0) * 100);
-const errorRatePct = Math.round((reqFailed.rate || 0) * 10000) / 100;
-const thresholdMs = parseFloat((durationInfo.expressions[0] || '').match(/<\s*([\d.]+)/)?.[1]);
-
-const ORANGE = '#FFA600', BLUE = '#005981', GREEN = '#2E9E4F', RED = '#D9534F';
-const DARK = '#2B2B2B', GRAY = '#8A8A8A', LIGHT_BG = '#F5F5F5', BORDER = '#E5E5E5';
-
-const MARGIN = 40;
-const doc = new PDFDocument({ margin: MARGIN, size: 'A4', bufferPages: true });
-doc.pipe(fs.createWriteStream(OUTPUT_PATH));
-
-const PAGE_W = doc.page.width;
-const CONTENT_W = PAGE_W - MARGIN * 2;
-const GAP = 14;
-
-function cardBox(x, y, w, h, title) {
-  doc.roundedRect(x, y, w, h, 8).fillColor('#FFFFFF').fill();
-  doc.roundedRect(x, y, w, h, 8).strokeColor(BORDER).lineWidth(0.7).stroke();
-  if (title) {
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK)
-      .text(title.toUpperCase(), x + 12, y + 10, { width: w - 24, characterSpacing: 0.3 });
-  }
-  return { innerX: x + 12, innerY: y + (title ? 26 : 12), innerW: w - 24 };
-}
-
-function drawGauge(cx, cy, r, value, color) {
-  const clamped = Math.max(0, Math.min(100, value));
-  const endAngle = Math.PI + (Math.PI * clamped / 100);
-  const arcX = cx + r * Math.cos(endAngle);
-  const arcY = cy + r * Math.sin(endAngle);
-  const largeArc = clamped > 50 ? 1 : 0;
-  doc.path(`M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy}`).lineWidth(9).strokeColor('#EDEDED').stroke();
-  doc.path(`M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${arcX} ${arcY}`).lineWidth(9).strokeColor(color).stroke();
-}
-
-const LOGO_PATH = 'logo.png';
-const hasLogo = fs.existsSync(LOGO_PATH);
-let logoHeight = 0;
-if (hasLogo) {
-  try {
-    const logoWidth = 120;
-    doc.image(LOGO_PATH, PAGE_W - MARGIN - logoWidth, MARGIN, { width: logoWidth });
-    logoHeight = 24;
-  } catch (e) {
-    console.error('Could not load logo.png:', e.message);
-  }
-}
-
-const reportTitle = (config.moduleName && config.subsectionName)
-  ? `${config.moduleName} — ${config.subsectionName}`
-  : 'API Load Test Dashboard';
-
-doc.fillColor(BLUE).fontSize(20).font('Helvetica-Bold').text(reportTitle, MARGIN, MARGIN + logoHeight, { width: CONTENT_W, align: 'center' });
-doc.moveDown(0.25);
-doc.strokeColor(ORANGE).lineWidth(1).moveTo(MARGIN, doc.y).lineTo(PAGE_W - MARGIN, doc.y).stroke();
-doc.moveDown(0.35);
-if (reportTitle !== 'API Load Test Dashboard') {
-  doc.fillColor(GRAY).fontSize(8.5).font('Helvetica').text('API Load Test Dashboard', { width: CONTENT_W, align: 'center' });
-}
-doc.fillColor(GRAY).fontSize(8.5).font('Helvetica').text(new Date().toLocaleString(), { width: CONTENT_W, align: 'center' });
-doc.moveDown(0.3);
-doc.fontSize(12).font('Helvetica-Bold').fillColor(overallPass ? GREEN : RED)
-  .text(overallPass ? 'PASS  -  all thresholds met' : 'FAIL  -  one or more thresholds breached', { width: CONTENT_W, align: 'center' });
-doc.moveDown(0.6);
-
-const row1Y = doc.y;
-const row1H = 104;
-const cardW3 = (CONTENT_W - GAP * 2) / 3;
-
-const checksColor = checksPassRate >= 90 ? GREEN : checksPassRate >= 50 ? ORANGE : RED;
-const c1 = cardBox(MARGIN, row1Y, cardW3, row1H, 'Checks Passed');
-drawGauge(c1.innerX + c1.innerW / 2, c1.innerY + 44, 38, checksPassRate, checksColor);
-doc.font('Helvetica-Bold').fontSize(15).fillColor(DARK).text(`${checksPassRate}%`, c1.innerX, c1.innerY + 32, { width: c1.innerW, align: 'center' });
-doc.font('Helvetica').fontSize(7.5).fillColor(DARK).text('Overall check pass rate', c1.innerX, c1.innerY + 62, { width: c1.innerW, align: 'center' });
-
-const errorColor = errorInfo.passed === false ? RED : GREEN;
-const c2x = MARGIN + cardW3 + GAP;
-const c2 = cardBox(c2x, row1Y, cardW3, row1H, 'Error Rate');
-drawGauge(c2.innerX + c2.innerW / 2, c2.innerY + 44, 38, Math.min(errorRatePct, 100), errorColor);
-doc.font('Helvetica-Bold').fontSize(15).fillColor(DARK).text(`${errorRatePct}%`, c2.innerX, c2.innerY + 32, { width: c2.innerW, align: 'center' });
-doc.font('Helvetica').fontSize(7.5).fillColor(DARK).text(`Threshold: < ${config.maxErrorRate || '-'}%`, c2.innerX, c2.innerY + 62, { width: c2.innerW, align: 'center' });
-
-const c3x = MARGIN + (cardW3 + GAP) * 2;
-const c3 = cardBox(c3x, row1Y, cardW3, row1H, 'Requests');
-const kpis = [
-  { label: 'Total Requests', value: fmt(reqs.count) },
-  { label: 'Requests / sec', value: fmt(reqs.rate) },
-];
-const kpiColW = (c3.innerW - 8) / 2;
-kpis.forEach((k, i) => {
-  const kx = c3.innerX + i * (kpiColW + 8);
-  doc.font('Helvetica-Bold').fontSize(11).fillColor(DARK).text(k.value, kx, c3.innerY, { width: kpiColW, lineBreak: false });
-  doc.font('Helvetica').fontSize(7).fillColor(DARK).text(k.label, kx, c3.innerY + 16, { width: kpiColW });
-});
-const kpis2 = [
-  { label: 'p95', value: `${Math.round(reqDuration['p(95)'] || 0)} ms` },
-  { label: 'Avg', value: `${Math.round(reqDuration.avg || 0)} ms` },
-];
-kpis2.forEach((k, i) => {
-  const kx = c3.innerX + i * (kpiColW + 8);
-  doc.font('Helvetica-Bold').fontSize(11).fillColor(DARK).text(k.value, kx, c3.innerY + 44, { width: kpiColW, lineBreak: false });
-  doc.font('Helvetica').fontSize(7).fillColor(DARK).text(k.label, kx, c3.innerY + 60, { width: kpiColW });
-});
-
-doc.y = row1Y + row1H + GAP;
-
-const cfgLines = [
-  `${config.method || '-'} ${config.endpoint || '-'}`,
-];
-doc.font('Helvetica').fontSize(8);
-const endpointHeight = doc.heightOfString(cfgLines[0], { width: CONTENT_W - 24 - 90 });
-
-const titleOffset = 26;
-const rowGap = 18;
-const bottomPadding = 20;
-const cfgCardH = titleOffset + Math.max(12, endpointHeight) + rowGap + 12 + rowGap + 12 + bottomPadding;
-
-const cfg = cardBox(MARGIN, doc.y, CONTENT_W, cfgCardH, 'Test Configuration');
-doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Endpoint', cfg.innerX, cfg.innerY, { width: 90 });
-doc.font('Helvetica').fontSize(8).fillColor(DARK)
-  .text(cfgLines[0], cfg.innerX + 90, cfg.innerY, { width: cfg.innerW - 90 });
-
-let cfgY2 = cfg.innerY + Math.max(12, endpointHeight) + rowGap;
-doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Virtual Users', cfg.innerX, cfgY2, { width: 90, continued: false });
-doc.font('Helvetica').fontSize(8).fillColor(DARK)
-  .text(`${config.startVU || '-'} -> ${config.targetVU || '-'}  (ramp ${config.rampTime || '-'})`, cfg.innerX + 90, cfgY2, { width: cfg.innerW - 90 });
-
-cfgY2 += rowGap;
-doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Thresholds', cfg.innerX, cfgY2, { width: 90 });
-doc.font('Helvetica').fontSize(8).fillColor(DARK)
-  .text(`${durationInfo.expressions.map(friendlyThreshold).join(', ') || '-'}  |  ${errorInfo.expressions.map(friendlyThreshold).join(', ') || '-'}`,
-    cfg.innerX + 90, cfgY2, { width: cfg.innerW - 90 });
-
-doc.y = row1Y + row1H + GAP + cfgCardH + GAP;
-
-const chartCardH = 150;
-const chart = cardBox(MARGIN, doc.y, CONTENT_W, chartCardH, 'Response Time vs Threshold (ms)');
-
-if (thresholdMs) {
-  doc.fontSize(7.5).fillColor(DARK).text(`- - -  Threshold: ${thresholdMs}ms`, chart.innerX, chart.innerY);
-}
-const barsAreaY = chart.innerY + 14;
-const barLabelW = 28;
-const barValueW = 55;
-const barTrackW = chart.innerW - barLabelW - barValueW - 8;
-const barHeight = 12, barGap = 10;
-
-const bars = [
-  { label: 'avg', value: reqDuration.avg, color: BLUE },
-  { label: 'p90', value: reqDuration['p(90)'], color: ORANGE },
-  { label: 'p95', value: reqDuration['p(95)'], color: RED },
-];
-const maxVal = Math.max(reqDuration.max || 1, thresholdMs || 0, 1) * 1.1;
-let by = barsAreaY;
-const trackX = chart.innerX + barLabelW;
-bars.forEach((b) => {
-  const w = Math.max(2, (b.value / maxVal) * barTrackW);
-  doc.fontSize(8).fillColor(DARK).text(b.label, chart.innerX, by + 2, { width: barLabelW });
-  doc.rect(trackX, by, barTrackW, barHeight).fillColor(LIGHT_BG).fill();
-  doc.rect(trackX, by, w, barHeight).fillColor(b.color).fill();
-  doc.fillColor(DARK).fontSize(8).text(`${Math.round(b.value)} ms`, trackX + barTrackW + 6, by + 2, { width: barValueW });
-  by += barHeight + barGap;
-});
-if (thresholdMs) {
-  const markerX = trackX + Math.min(barTrackW, (thresholdMs / maxVal) * barTrackW);
-  doc.strokeColor(DARK).dash(2, { space: 2 }).moveTo(markerX, barsAreaY).lineTo(markerX, by - barGap).stroke();
-  doc.undash();
-}
-
-doc.y = row1Y + row1H + GAP + cfgCardH + GAP + chartCardH + GAP;
-
-if (checksList.length > 0) {
-  const rowH = 16;
-  const tableCardH = 34 + checksList.length * rowH + 8;
-  const tbl = cardBox(MARGIN, doc.y, CONTENT_W, tableCardH, 'Checks Breakdown');
-
-  const col1 = tbl.innerW * 0.6, col2 = tbl.innerW * 0.2, col3 = tbl.innerW * 0.2;
-  let ty = tbl.innerY;
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(DARK);
-  doc.text('Check', tbl.innerX, ty, { width: col1 });
-  doc.text('Passes', tbl.innerX + col1, ty, { width: col2 });
-  doc.text('Fails', tbl.innerX + col1 + col2, ty, { width: col3 });
-  ty += 14;
-  doc.moveTo(tbl.innerX, ty).lineTo(tbl.innerX + col1 + col2 + col3, ty).strokeColor(BORDER).stroke();
-  ty += 4;
-
-  doc.font('Helvetica').fontSize(8.5);
-  checksList.forEach((c, idx) => {
-    if (idx % 2 === 1) {
-      doc.rect(tbl.innerX - 4, ty - 3, col1 + col2 + col3 + 8, rowH).fillColor(LIGHT_BG).fill();
-    }
-    const failed = (c.fails || 0) > 0;
-    doc.fillColor(failed ? RED : DARK).text(c.name || '-', tbl.innerX, ty, { width: col1 });
-    doc.fillColor(DARK).text(String(c.passes || 0), tbl.innerX + col1, ty, { width: col2 });
-    doc.fillColor(failed ? RED : GREEN).text(String(c.fails || 0), tbl.innerX + col1 + col2, ty, { width: col3 });
-    ty += rowH;
+function ask(question, defaultVal) {
+  return new Promise((resolve) => {
+    const suffix = defaultVal ? ` (default: ${defaultVal})` : '';
+    rl.question(`${question}${suffix}: `, (answer) => resolve(answer.trim() || defaultVal || ''));
   });
-
-  doc.y = row1Y + row1H + GAP + cfgCardH + GAP + chartCardH + GAP + tableCardH + GAP;
 }
 
-const recs = [];
-if (durationInfo.passed === false) {
-  recs.push(`Response time exceeded the threshold (avg ${fmt(reqDuration.avg, 'ms')}, p95 ${fmt(reqDuration['p(95)'], 'ms')}). Consider re-running with fewer virtual users to find the breaking point, checking for server-side bottlenecks, or confirming the threshold matches realistic expectations.`);
-}
-if (errorInfo.passed === false) {
-  recs.push('The error rate threshold was breached. Check reports/summary.json for failed request status codes, and confirm the endpoint URL, auth token, and request body are correct for this run.');
-}
-if (recs.length === 0) {
-  recs.push('All thresholds passed. Consider gradually increasing target Virtual Users in future runs to find the actual capacity limit.');
+async function askNumber(question, defaultVal) {
+  while (true) {
+    const answer = await ask(question, defaultVal);
+    const num = parseFloat(answer);
+    if (!Number.isNaN(num) && num > 0) return answer;
+    console.log(`   ⚠️  "${answer}" is not a valid number.`);
+  }
 }
 
-doc.font('Helvetica').fontSize(8.5);
-const recTexts = recs.map((r, i) => recs.length > 1 ? `${i + 1}. ${r}` : `-  ${r}`);
-let recHeight = 20;
-recTexts.forEach((r) => { recHeight += doc.heightOfString(r, { width: CONTENT_W - 24 }) + 6; });
-
-const rec = cardBox(MARGIN, doc.y, CONTENT_W, recHeight, 'Recommendations');
-let ry = rec.innerY;
-recTexts.forEach((r) => {
-  doc.font('Helvetica').fontSize(8.5).fillColor(DARK).text(r, rec.innerX, ry, { width: rec.innerW });
-  ry += doc.heightOfString(r, { width: rec.innerW }) + 6;
-});
-
-doc.y = row1Y + row1H + GAP + cfgCardH + GAP + chartCardH + GAP + (checksList.length > 0 ? (34 + checksList.length * 16 + 8 + GAP) : 0) + recHeight + 14;
-doc.fontSize(7.5).fillColor(GRAY).font('Helvetica-Oblique').text('Generated automatically after each k6 load test run.', MARGIN, doc.y, { width: CONTENT_W, align: 'center' });
-
-const pageRange = doc.bufferedPageRange();
-for (let i = pageRange.start; i < pageRange.start + pageRange.count; i++) {
-  doc.switchToPage(i);
-  const savedBottomMargin = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
-  doc.fontSize(7.5).fillColor(GRAY).font('Helvetica')
-    .text(`Page ${i + 1} of ${pageRange.count}`, MARGIN, doc.page.height - 28, {
-      width: CONTENT_W,
-      align: 'center',
-    });
-  doc.page.margins.bottom = savedBottomMargin;
+async function askChoice(question, options) {
+  console.log(`\n${question}`);
+  options.forEach((opt, i) => console.log(`   ${i + 1}) ${opt}`));
+  while (true) {
+    const answer = await ask(`Enter a number (1-${options.length})`);
+    const num = parseInt(answer, 10);
+    if (!Number.isNaN(num) && num >= 1 && num <= options.length) return num - 1;
+    console.log(`   ⚠️  Please enter a number between 1 and ${options.length}.`);
+  }
 }
 
-doc.end();
-console.log(`PDF report written to ${OUTPUT_PATH}`);
+function loadModules() {
+  if (!fs.existsSync(MODULES_PATH)) return {};
+  let modules;
+  try { modules = JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8')); }
+  catch (e) { return {}; }
+  let migrated = false;
+  Object.keys(modules).forEach((modName) => {
+    const mod = modules[modName];
+    if (mod.endpoints && !mod.sections) {
+      mod.sections = { General: { subsections: mod.endpoints } };
+      delete mod.endpoints;
+      migrated = true;
+    }
+    if (!mod.sections) mod.sections = {};
+  });
+  if (migrated) {
+    console.log('   ℹ️  Upgraded modules.json to the new Module → Section → Subsection format (old endpoints moved under a "General" section).');
+    saveModules(modules);
+  }
+  return modules;
+}
+function saveModules(modules) {
+  fs.writeFileSync(MODULES_PATH, JSON.stringify(modules, null, 2), 'utf-8');
+}
+
+async function pickEndpoint() {
+  const modules = loadModules();
+  const moduleNames = Object.keys(modules);
+  let moduleName;
+  if (moduleNames.length === 0) {
+    console.log('\n📦  No modules saved yet — let\'s add your first one.');
+    moduleName = await addNewModule(modules);
+  } else {
+    const options = [...moduleNames, '+ Add a new module'];
+    const choice = await askChoice('1) Which module do you want to test?', options);
+    moduleName = choice === moduleNames.length ? await addNewModule(modules) : moduleNames[choice];
+  }
+
+  const mod = modules[moduleName];
+  const sectionNames = Object.keys(mod.sections);
+  let sectionName;
+  if (sectionNames.length === 0) {
+    sectionName = await addNewSection(modules, moduleName);
+  } else {
+    const secOptions = [...sectionNames, '+ Add a new Section'];
+    const secChoice = await askChoice(`   2) Which Section inside "${moduleName}"?`, secOptions);
+    sectionName = secChoice === sectionNames.length ? await addNewSection(modules, moduleName) : sectionNames[secChoice];
+  }
+
+  const section = modules[moduleName].sections[sectionName];
+  const subsectionNames = Object.keys(section.subsections);
+  const subOptions = [...subsectionNames, '+ Add a new Subsection'];
+  const subChoice = await askChoice(`      3) Which Subsection inside "${sectionName}"?`, subOptions);
+
+  let subsectionName;
+  if (subChoice === subsectionNames.length) {
+    subsectionName = await addNewSubsection(modules, moduleName, sectionName);
+  } else {
+    subsectionName = subsectionNames[subChoice];
+    const currentPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
+    const currentFull = mod.baseUrl.replace(/\/$/, '') + currentPath;
+    console.log(`\n   Saved endpoint: ${currentFull}`);
+    const keepOrEdit = await askChoice('   What do you want to do with this endpoint?', [
+      'Use it as-is',
+      'Edit it (update the saved API path)',
+    ]);
+    if (keepOrEdit === 1) {
+      const newPath = await ask('   New API path');
+      modules[moduleName].sections[sectionName].subsections[subsectionName] = newPath;
+      saveModules(modules);
+      console.log(`   ✓ Updated "${subsectionName}".`);
+    }
+  }
+
+  return {
+    endpoint: mod.baseUrl.replace(/\/$/, '') + modules[moduleName].sections[sectionName].subsections[subsectionName],
+    moduleName,
+    sectionName,
+    subsectionName,
+  };
+}
+
+async function addNewModule(modules) {
+  const moduleName = await ask('   New module name');
+  const baseUrl = await ask('   Base URL for this module');
+  modules[moduleName] = { baseUrl, sections: {} };
+  await addNewSection(modules, moduleName);
+  return moduleName;
+}
+
+async function addNewSection(modules, moduleName) {
+  const sectionName = await ask('   New Section name');
+  modules[moduleName].sections[sectionName] = { subsections: {} };
+  await addNewSubsection(modules, moduleName, sectionName);
+  return sectionName;
+}
+
+async function addNewSubsection(modules, moduleName, sectionName) {
+  const subsectionName = await ask('   New Subsection name');
+  const endpointPath = await ask('   API path');
+  modules[moduleName].sections[sectionName].subsections[subsectionName] = endpointPath;
+  saveModules(modules);
+  return subsectionName;
+}
+
+const CHROME_PATHS_WIN = [
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+];
+function findChromeWin() { return CHROME_PATHS_WIN.find((p) => p && fs.existsSync(p)); }
+
+function openFile(filePath) {
+  const platform = process.platform;
+  const absPath = path.resolve(filePath);
+  let cmd, args;
+  if (platform === 'win32') {
+    const chromePath = findChromeWin();
+    cmd = chromePath || 'explorer';
+    args = [absPath];
+  } else if (platform === 'darwin') {
+    cmd = 'open'; args = ['-a', 'Google Chrome', absPath];
+  } else {
+    cmd = 'google-chrome'; args = [absPath];
+  }
+  const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+  child.on('error', () => {});
+  child.unref();
+}
+
+function readSummaryMetrics() {
+  try {
+    const summary = JSON.parse(fs.readFileSync('reports/summary.json', 'utf-8'));
+    const m = summary.metrics || {};
+    const dur = (m.http_req_duration || {}).values || {};
+    const failed = (m.http_req_failed || {}).values || {};
+    const reqs = (m.http_reqs || {}).values || {};
+
+    function thresholdPassed(name) {
+      const t = m[name] && m[name].thresholds;
+      if (!t) return null;
+      return Object.values(t).every((x) => x.ok !== false);
+    }
+    const durPassed = thresholdPassed('http_req_duration');
+    const errPassed = thresholdPassed('http_req_failed');
+    const overallPass = durPassed !== false && errPassed !== false;
+
+    return {
+      avg: Math.round((dur.avg || 0) * 10) / 10,
+      p95: Math.round((dur['p(95)'] || 0) * 10) / 10,
+      errorRate: Math.round((failed.rate || 0) * 10000) / 100,
+      totalRequests: reqs.count || 0,
+      overallPass,
+    };
+  } catch (e) {
+    return { avg: '-', p95: '-', errorRate: '-', totalRequests: '-', overallPass: null };
+  }
+}
+
+function buildSummaryHtml(results) {
+  const rows = results.map((r) => `
+    <tr style="background:${r.overallPass ? '#E9F7EF' : '#FBEAEA'}">
+      <td>${r.startVU} → ${r.targetVU}</td>
+      <td>${r.avg} ms</td>
+      <td>${r.p95} ms</td>
+      <td>${r.errorRate}%</td>
+      <td>${r.totalRequests}</td>
+      <td style="font-weight:700;color:${r.overallPass ? '#2E9E4F' : '#D9534F'}">${r.overallPass ? 'PASS' : 'FAIL'}</td>
+      <td><a href="progressive/${r.label}.html">dashboard</a> / <a href="progressive/${r.label}.pdf">pdf</a></td>
+    </tr>`).join('');
+
+  const firstFailIdx = results.findIndex((r) => r.overallPass === false);
+  const verdict = firstFailIdx === -1
+    ? `All tested VU levels (up to ${results[results.length - 1].targetVU}) passed. Consider testing even higher to find the true limit.`
+    : `The server started failing at ${results[firstFailIdx].targetVU} concurrent users. The last known-good level was ${firstFailIdx > 0 ? results[firstFailIdx - 1].targetVU : 'below ' + results[0].startVU}.`;
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Progressive Load Test Summary</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background:#fff; color:#2B2B2B; padding:32px; }
+  h1 { color:#005981; }
+  table { width:100%; border-collapse: collapse; margin-top:16px; }
+  th, td { padding:10px 12px; text-align:left; border-bottom:1px solid #eee; font-size:13px; }
+  th { background:#F7F9FA; color:#2B2B2B; }
+  .verdict { margin-top:20px; padding:16px; border-radius:8px; background:#F7F9FA; border:1px solid #E5E5E5; font-size:14px; }
+</style></head>
+<body>
+  <h1>Progressive Load Test Summary</h1>
+  <p style="color:#8A8A8A;">Generated ${new Date().toLocaleString()}</p>
+  <table>
+    <thead><tr><th>VU Ramp</th><th>Avg</th><th>p95</th><th>Error Rate</th><th>Total Requests</th><th>Result</th><th>Reports</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="verdict"><b>Verdict:</b> ${verdict}</div>
+</body></html>`;
+}
+
+async function main() {
+  console.log('\n📋  Progressive Load Test — answer these once, then it runs every step automatically\n');
+
+  const { endpoint, moduleName, sectionName, subsectionName } = await pickEndpoint();
+  console.log(`\n   → Endpoint selected: ${endpoint}\n`);
+
+  const method = (await ask('HTTP Method (GET/POST/PUT/DELETE)', 'GET')).toUpperCase();
+  let body = '{}';
+  if (method === 'POST' || method === 'PUT') {
+    body = await ask('Request Body (JSON string)', '{}');
+  }
+  const token = await ask('API Token (Bearer) - leave blank if none', '');
+  const rampTime = await ask('Ramp-up duration for EACH step (e.g. 30s, 1m)', '30s');
+  const maxResponseTime = await askNumber('Response time threshold in ms (X)', '500');
+  const maxErrorRate = await askNumber('Error rate threshold in % (Y)', '1');
+
+  rl.close();
+
+  console.log(`\n🚀  Will run ${VU_STEPS.length} steps: ${VU_STEPS.join(' → ')}\n`);
+
+  if (!fs.existsSync('reports')) fs.mkdirSync('reports');
+  if (!fs.existsSync(PROGRESSIVE_DIR)) fs.mkdirSync(PROGRESSIVE_DIR, { recursive: true });
+
+  const results = [];
+  let previousTarget = Math.max(5, Math.round(VU_STEPS[0] / 3));
+
+  for (let i = 0; i < VU_STEPS.length; i++) {
+    const targetVU = VU_STEPS[i];
+    const startVU = previousTarget;
+    const label = `step-${i + 1}-${targetVU}VU`;
+
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`STEP ${i + 1}/${VU_STEPS.length}: ${startVU} → ${targetVU} virtual users (ramp ${rampTime})`);
+    console.log('='.repeat(60));
+
+    const env = {
+      ...process.env,
+      ENDPOINT: endpoint, METHOD: method, BODY: body, API_TOKEN: token,
+      START_VU: String(startVU), RAMP_TIME: rampTime, TARGET_VU: String(targetVU),
+      MAX_RESPONSE_TIME: maxResponseTime, MAX_ERROR_RATE: maxErrorRate,
+    };
+
+    fs.writeFileSync(
+      'reports/last-run-config.json',
+      JSON.stringify({
+        endpoint, moduleName, sectionName, subsectionName, method, body,
+        startVU: String(startVU), rampTime, targetVU: String(targetVU),
+        maxResponseTime, maxErrorRate,
+      }, null, 2)
+    );
+
+    const k6Result = spawnSync('k6', ['run', 'load-tests/load-test.js'], { stdio: 'inherit', env });
+
+    if (k6Result.error) {
+      console.error(`\n❌  k6 failed to run: ${k6Result.error.message}`);
+      break;
+    }
+
+    spawnSync('node', ['generate-pdf-report.js'], { stdio: 'inherit' });
+    spawnSync('node', ['generate-html-report.js'], { stdio: 'inherit' });
+
+    const metrics = readSummaryMetrics();
+    results.push({ startVU, targetVU, label, ...metrics });
+
+    try {
+      if (fs.existsSync('reports/load-test-report.pdf')) {
+        fs.copyFileSync('reports/load-test-report.pdf', `${PROGRESSIVE_DIR}/${label}.pdf`);
+      }
+      if (fs.existsSync('reports/load-test-dashboard.html')) {
+        fs.copyFileSync('reports/load-test-dashboard.html', `${PROGRESSIVE_DIR}/${label}.html`);
+      }
+    } catch (e) {
+      console.log(`   ⚠️  Could not archive this step's reports: ${e.message}`);
+    }
+
+    console.log(`\n   Result: ${metrics.overallPass ? '✅ PASS' : '❌ FAIL'}  |  avg ${metrics.avg}ms  |  p95 ${metrics.p95}ms  |  error rate ${metrics.errorRate}%`);
+
+    previousTarget = targetVU;
+  }
+
+  const summaryHtml = buildSummaryHtml(results);
+  const summaryPath = 'reports/progressive-summary.html';
+  fs.writeFileSync(summaryPath, summaryHtml, 'utf-8');
+
+  console.log(`\n\n📊  All steps complete. Summary saved to ${summaryPath}`);
+  console.log('   Opening summary in browser...');
+  openFile(summaryPath);
+
+  setTimeout(() => process.exit(0), 1500);
+}
+
+main();
