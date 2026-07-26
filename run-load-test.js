@@ -92,9 +92,6 @@ async function pickEndpoint() {
 
   const mod = modules[moduleName];
 
-  // Let the user edit the module's Base URL on the spot — useful for
-  // pointing the same module at a different environment (staging, another
-  // server, etc.) without hand-editing modules.json.
   if (!moduleIsNew) {
     console.log(`\n   Current Base URL: ${mod.baseUrl}`);
     const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
@@ -140,7 +137,8 @@ async function pickEndpoint() {
       'Edit it (update the saved API path)',
     ]);
     if (keepOrEdit === 1) {
-      const newPath = await ask('   New API path');
+      const newPathRaw = await ask('   New API path');
+      const newPath = stripAccidentalHost(newPathRaw, mod.baseUrl);
       modules[moduleName].sections[sectionName].subsections[subsectionName] = newPath;
       saveModules(modules);
       console.log(`   ✓ Updated "${subsectionName}".`);
@@ -168,11 +166,33 @@ async function addNewSection(modules, moduleName) {
 
 async function addNewSubsection(modules, moduleName, sectionName) {
   const subsectionName = await ask('   New Subsection name');
-  const endpointPath = await ask('   API path');
+  let endpointPath = await ask('   API path');
+  endpointPath = stripAccidentalHost(endpointPath, modules[moduleName].baseUrl);
   modules[moduleName].sections[sectionName].subsections[subsectionName] = endpointPath;
   saveModules(modules);
   console.log(`   ✓ Saved "${subsectionName}" under Section "${sectionName}" (Module "${moduleName}") — it'll show up as a choice next time.`);
   return subsectionName;
+}
+
+// If someone pastes a full URL (including the base URL, or any http:// / https://
+// host) into the "API path" prompt by mistake, the base URL would get prepended
+// a second time later (e.g. "http://host.comhttp://host.com/api/x"), which fails
+// DNS lookup. Detect that and strip the accidental host so only the path remains.
+function stripAccidentalHost(inputPath, baseUrl) {
+  if (!/^https?:\/\//i.test(inputPath)) return inputPath;
+  const base = (baseUrl || '').replace(/\/$/, '');
+  if (base && inputPath.startsWith(base)) {
+    const stripped = inputPath.slice(base.length);
+    console.log(`   ⚠️  Detected the module's Base URL inside the API path — removed it so the URL isn't duplicated. Saved path: ${stripped}`);
+    return stripped;
+  }
+  try {
+    const url = new URL(inputPath);
+    console.log(`   ⚠️  Detected a full URL in the API path — keeping only the path/query part so it isn't combined with the Base URL twice. Saved path: ${url.pathname}${url.search}`);
+    return `${url.pathname}${url.search}`;
+  } catch (e) {
+    return inputPath;
+  }
 }
 
 const CHROME_PATHS_WIN = [
