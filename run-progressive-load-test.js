@@ -21,7 +21,6 @@ const fs = require('fs');
 const MODULES_PATH = 'modules.json';
 const PROGRESSIVE_DIR = 'reports/progressive';
 
-// Edit this array to change the ramp progression (must be ascending).
 const VU_STEPS = [30, 50, 75, 100, 150, 200];
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -141,7 +140,8 @@ async function pickEndpoint() {
       'Edit it (update the saved API path)',
     ]);
     if (keepOrEdit === 1) {
-      const newPath = await ask('   New API path');
+      const newPathRaw = await ask('   New API path');
+      const newPath = stripAccidentalHost(newPathRaw, mod.baseUrl);
       modules[moduleName].sections[sectionName].subsections[subsectionName] = newPath;
       saveModules(modules);
       console.log(`   ✓ Updated "${subsectionName}".`);
@@ -173,10 +173,28 @@ async function addNewSection(modules, moduleName) {
 
 async function addNewSubsection(modules, moduleName, sectionName) {
   const subsectionName = await ask('   New Subsection name');
-  const endpointPath = await ask('   API path');
+  let endpointPath = await ask('   API path');
+  endpointPath = stripAccidentalHost(endpointPath, modules[moduleName].baseUrl);
   modules[moduleName].sections[sectionName].subsections[subsectionName] = endpointPath;
   saveModules(modules);
   return subsectionName;
+}
+
+function stripAccidentalHost(inputPath, baseUrl) {
+  if (!/^https?:\/\//i.test(inputPath)) return inputPath;
+  const base = (baseUrl || '').replace(/\/$/, '');
+  if (base && inputPath.startsWith(base)) {
+    const stripped = inputPath.slice(base.length);
+    console.log(`   ⚠️  Detected the module's Base URL inside the API path — removed it so the URL isn't duplicated. Saved path: ${stripped}`);
+    return stripped;
+  }
+  try {
+    const url = new URL(inputPath);
+    console.log(`   ⚠️  Detected a full URL in the API path — keeping only the path/query part so it isn't combined with the Base URL twice. Saved path: ${url.pathname}${url.search}`);
+    return `${url.pathname}${url.search}`;
+  } catch (e) {
+    return inputPath;
+  }
 }
 
 const CHROME_PATHS_WIN = [
