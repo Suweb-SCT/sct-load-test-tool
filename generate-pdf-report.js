@@ -102,10 +102,17 @@ if (hasLogo) {
   }
 }
 
-doc.fillColor(BLUE).fontSize(20).font('Helvetica-Bold').text('API Load Test Dashboard', MARGIN, MARGIN + logoHeight, { width: CONTENT_W, align: 'center' });
+const reportTitle = (config.moduleName && config.subsectionName)
+  ? `${config.moduleName} — ${config.subsectionName}`
+  : 'API Load Test Dashboard';
+
+doc.fillColor(BLUE).fontSize(20).font('Helvetica-Bold').text(reportTitle, MARGIN, MARGIN + logoHeight, { width: CONTENT_W, align: 'center' });
 doc.moveDown(0.25);
 doc.strokeColor(ORANGE).lineWidth(1).moveTo(MARGIN, doc.y).lineTo(PAGE_W - MARGIN, doc.y).stroke();
 doc.moveDown(0.35);
+if (reportTitle !== 'API Load Test Dashboard') {
+  doc.fillColor(GRAY).fontSize(8.5).font('Helvetica').text('API Load Test Dashboard', { width: CONTENT_W, align: 'center' });
+}
 doc.fillColor(GRAY).fontSize(8.5).font('Helvetica').text(new Date().toLocaleString(), { width: CONTENT_W, align: 'center' });
 doc.moveDown(0.3);
 doc.fontSize(12).font('Helvetica-Bold').fillColor(overallPass ? GREEN : RED)
