@@ -38,7 +38,7 @@ async function askNumber(question, defaultVal) {
     const answer = await ask(question, defaultVal);
     const num = parseFloat(answer);
     if (!Number.isNaN(num) && num > 0) return answer;
-    console.log(`   \u26A0\uFE0F  "${answer}" is not a valid number.`);
+    console.log(`   ⚠️  "${answer}" is not a valid number.`);
   }
 }
 
@@ -49,7 +49,7 @@ async function askChoice(question, options) {
     const answer = await ask(`Enter a number (1-${options.length})`);
     const num = parseInt(answer, 10);
     if (!Number.isNaN(num) && num >= 1 && num <= options.length) return num - 1;
-    console.log(`   \u26A0\uFE0F  Please enter a number between 1 and ${options.length}.`);
+    console.log(`   ⚠️  Please enter a number between 1 and ${options.length}.`);
   }
 }
 
@@ -67,7 +67,7 @@ async function pickEndpoint() {
   const moduleNames = Object.keys(modules);
   let moduleName;
   if (moduleNames.length === 0) {
-    console.log('\n\u{1F4E6}  No modules saved yet — let\'s add your first one.');
+    console.log('\n📦  No modules saved yet — let\'s add your first one.');
     moduleName = await addNewModule(modules);
   } else {
     const options = [...moduleNames, '+ Add a new module'];
@@ -84,8 +84,6 @@ async function pickEndpoint() {
     subsectionName = await addNewSubsection(modules, moduleName);
   } else {
     subsectionName = subsectionNames[subChoice];
-    // Existing subsection picked — let the user keep it as-is or edit it,
-    // same behavior as run-load-test.js.
     const currentPath = modules[moduleName].endpoints[subsectionName];
     const currentFull = mod.baseUrl.replace(/\/$/, '') + currentPath;
     console.log(`\n   Saved endpoint: ${currentFull}`);
@@ -97,11 +95,15 @@ async function pickEndpoint() {
       const newPath = await ask('   New API path');
       modules[moduleName].endpoints[subsectionName] = newPath;
       saveModules(modules);
-      console.log(`   \u2713 Updated "${subsectionName}" under module "${moduleName}".`);
+      console.log(`   ✓ Updated "${subsectionName}" under module "${moduleName}".`);
     }
   }
 
-  return mod.baseUrl.replace(/\/$/, '') + modules[moduleName].endpoints[subsectionName];
+  return {
+    endpoint: mod.baseUrl.replace(/\/$/, '') + modules[moduleName].endpoints[subsectionName],
+    moduleName,
+    subsectionName,
+  };
 }
 
 async function addNewModule(modules) {
@@ -177,7 +179,7 @@ function readSummaryMetrics() {
 function buildSummaryHtml(results) {
   const rows = results.map((r) => `
     <tr style="background:${r.overallPass ? '#E9F7EF' : '#FBEAEA'}">
-      <td>${r.startVU} \u2192 ${r.targetVU}</td>
+      <td>${r.startVU} → ${r.targetVU}</td>
       <td>${r.avg} ms</td>
       <td>${r.p95} ms</td>
       <td>${r.errorRate}%</td>
@@ -213,10 +215,10 @@ function buildSummaryHtml(results) {
 }
 
 async function main() {
-  console.log('\n\u{1F4CB}  Progressive Load Test — answer these once, then it runs every step automatically\n');
+  console.log('\n📋  Progressive Load Test — answer these once, then it runs every step automatically\n');
 
-  const endpoint = await pickEndpoint();
-  console.log(`\n   \u2192 Endpoint selected: ${endpoint}\n`);
+  const { endpoint, moduleName, subsectionName } = await pickEndpoint();
+  console.log(`\n   → Endpoint selected: ${endpoint}\n`);
 
   const method = (await ask('HTTP Method (GET/POST/PUT/DELETE)', 'GET')).toUpperCase();
   let body = '{}';
@@ -230,13 +232,13 @@ async function main() {
 
   rl.close();
 
-  console.log(`\n\u{1F680}  Will run ${VU_STEPS.length} steps: ${VU_STEPS.join(' \u2192 ')}\n`);
+  console.log(`\n🚀  Will run ${VU_STEPS.length} steps: ${VU_STEPS.join(' → ')}\n`);
 
   if (!fs.existsSync('reports')) fs.mkdirSync('reports');
   if (!fs.existsSync(PROGRESSIVE_DIR)) fs.mkdirSync(PROGRESSIVE_DIR, { recursive: true });
 
   const results = [];
-  let previousTarget = Math.max(5, Math.round(VU_STEPS[0] / 3)); // a gentle starting point for step 1
+  let previousTarget = Math.max(5, Math.round(VU_STEPS[0] / 3));
 
   for (let i = 0; i < VU_STEPS.length; i++) {
     const targetVU = VU_STEPS[i];
@@ -244,7 +246,7 @@ async function main() {
     const label = `step-${i + 1}-${targetVU}VU`;
 
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`STEP ${i + 1}/${VU_STEPS.length}: ${startVU} \u2192 ${targetVU} virtual users (ramp ${rampTime})`);
+    console.log(`STEP ${i + 1}/${VU_STEPS.length}: ${startVU} → ${targetVU} virtual users (ramp ${rampTime})`);
     console.log('='.repeat(60));
 
     const env = {
@@ -254,10 +256,19 @@ async function main() {
       MAX_RESPONSE_TIME: maxResponseTime, MAX_ERROR_RATE: maxErrorRate,
     };
 
+    fs.writeFileSync(
+      'reports/last-run-config.json',
+      JSON.stringify({
+        endpoint, moduleName, subsectionName, method, body,
+        startVU: String(startVU), rampTime, targetVU: String(targetVU),
+        maxResponseTime, maxErrorRate,
+      }, null, 2)
+    );
+
     const k6Result = spawnSync('k6', ['run', 'load-tests/load-test.js'], { stdio: 'inherit', env });
 
     if (k6Result.error) {
-      console.error(`\n\u274C  k6 failed to run: ${k6Result.error.message}`);
+      console.error(`\n❌  k6 failed to run: ${k6Result.error.message}`);
       break;
     }
 
@@ -267,7 +278,6 @@ async function main() {
     const metrics = readSummaryMetrics();
     results.push({ startVU, targetVU, label, ...metrics });
 
-    // Save this step's reports under a unique name so the next step doesn't overwrite them
     try {
       if (fs.existsSync('reports/load-test-report.pdf')) {
         fs.copyFileSync('reports/load-test-report.pdf', `${PROGRESSIVE_DIR}/${label}.pdf`);
@@ -276,20 +286,19 @@ async function main() {
         fs.copyFileSync('reports/load-test-dashboard.html', `${PROGRESSIVE_DIR}/${label}.html`);
       }
     } catch (e) {
-      console.log(`   \u26A0\uFE0F  Could not archive this step's reports: ${e.message}`);
+      console.log(`   ⚠️  Could not archive this step's reports: ${e.message}`);
     }
 
-    console.log(`\n   Result: ${metrics.overallPass ? '\u2705 PASS' : '\u274C FAIL'}  |  avg ${metrics.avg}ms  |  p95 ${metrics.p95}ms  |  error rate ${metrics.errorRate}%`);
+    console.log(`\n   Result: ${metrics.overallPass ? '✅ PASS' : '❌ FAIL'}  |  avg ${metrics.avg}ms  |  p95 ${metrics.p95}ms  |  error rate ${metrics.errorRate}%`);
 
     previousTarget = targetVU;
   }
 
-  // Build and open the combined summary
   const summaryHtml = buildSummaryHtml(results);
   const summaryPath = 'reports/progressive-summary.html';
   fs.writeFileSync(summaryPath, summaryHtml, 'utf-8');
 
-  console.log(`\n\n\u{1F4CA}  All steps complete. Summary saved to ${summaryPath}`);
+  console.log(`\n\n📊  All steps complete. Summary saved to ${summaryPath}`);
   console.log('   Opening summary in browser...');
   openFile(summaryPath);
 
