@@ -61,9 +61,23 @@ const reportTitle = (config.moduleName && config.sectionName && config.subsectio
     ? `${config.moduleName} — ${config.subsectionName}`
     : 'API Load Test Dashboard';
 
+function detectEnvironment(endpoint) {
+  const text = (endpoint || '').toLowerCase();
+  if (/localhost|127\.0\.0\.1|\.local\b|\.test\b/.test(text)) return { label: 'LOCAL', color: '#8A8A8A' };
+  if (/staging|stage|uat|qa\./.test(text)) return { label: 'STAGING', color: '#E8A33D' };
+  if (/prod(uction)?\./.test(text)) return { label: 'PRODUCTION', color: '#D9534F' };
+  return null;
+}
+const envInfo = detectEnvironment(config.endpoint);
+const locationLabel = (config.moduleName && config.sectionName && config.subsectionName)
+  ? `${config.moduleName} › ${config.sectionName} › ${config.subsectionName}`
+  : null;
+
 const data = {
   overallPass,
   reportTitle,
+  envInfo,
+  locationLabel,
   endpoint: `${config.method || '-'} ${config.endpoint || '-'}`,
   vu: `${config.startVU || '-'} → ${config.targetVU || '-'} (ramp ${config.rampTime || '-'})`,
   thresholdMs,
@@ -155,6 +169,7 @@ const html = `<!DOCTYPE html>
   .status-badge { padding: 8px 18px; border-radius: 20px; font-weight: 700; font-size: 14px; color: white; white-space: nowrap; }
   .status-badge.pass { background: var(--green); }
   .status-badge.fail { background: var(--red); }
+  .env-badge { padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 10.5px; letter-spacing: 0.05em; color: white; white-space: nowrap; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px; align-items: start; }
   .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; min-width: 0; }
   .card h3 { margin: 0 0 12px 0; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dark); }
@@ -199,6 +214,7 @@ const html = `<!DOCTYPE html>
   </div>
   <div class="header-right">
     ${logoDataUri ? `<img class="logo" src="${logoDataUri}" alt="Company logo">` : ''}
+    ${data.envInfo ? `<div class="env-badge" style="background:${data.envInfo.color}">${data.envInfo.label}</div>` : ''}
     <div class="status-badge ${data.overallPass ? 'pass' : 'fail'}">${data.overallPass ? '✓ PASS' : '✗ FAIL'}</div>
   </div>
 </div>
@@ -230,6 +246,7 @@ const html = `<!DOCTYPE html>
 
   <div class="card">
     <h3>Test Configuration</h3>
+    ${data.locationLabel ? `<div class="config-row"><b>Location</b>${data.locationLabel}</div>` : ''}
     <div class="config-row"><b>Endpoint</b><div class="endpoint-box">${data.endpoint}</div></div>
     <div class="config-row"><b>Virtual Users</b>${data.vu}</div>
     <div class="config-row"><b>Response Threshold</b>p95 &lt; ${data.thresholdMs ?? '-'} ms</div>
