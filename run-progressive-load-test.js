@@ -55,8 +55,24 @@ async function askChoice(question, options) {
 
 function loadModules() {
   if (!fs.existsSync(MODULES_PATH)) return {};
-  try { return JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8')); }
+  let modules;
+  try { modules = JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8')); }
   catch (e) { return {}; }
+  let migrated = false;
+  Object.keys(modules).forEach((modName) => {
+    const mod = modules[modName];
+    if (mod.endpoints && !mod.sections) {
+      mod.sections = { General: { subsections: mod.endpoints } };
+      delete mod.endpoints;
+      migrated = true;
+    }
+    if (!mod.sections) mod.sections = {};
+  });
+  if (migrated) {
+    console.log('   ℹ️  Upgraded modules.json to the new Module → Section → Subsection format (old endpoints moved under a "General" section).');
+    saveModules(modules);
+  }
+  return modules;
 }
 function saveModules(modules) {
   fs.writeFileSync(MODULES_PATH, JSON.stringify(modules, null, 2), 'utf-8');
@@ -71,20 +87,32 @@ async function pickEndpoint() {
     moduleName = await addNewModule(modules);
   } else {
     const options = [...moduleNames, '+ Add a new module'];
-    const choice = await askChoice('Which module do you want to test?', options);
+    const choice = await askChoice('1) Which module do you want to test?', options);
     moduleName = choice === moduleNames.length ? await addNewModule(modules) : moduleNames[choice];
   }
+
   const mod = modules[moduleName];
-  const subsectionNames = Object.keys(mod.endpoints);
-  const subOptions = [...subsectionNames, '+ Add a new API/subsection to this module'];
-  const subChoice = await askChoice(`Which API/subsection inside "${moduleName}"?`, subOptions);
+  const sectionNames = Object.keys(mod.sections);
+  let sectionName;
+  if (sectionNames.length === 0) {
+    sectionName = await addNewSection(modules, moduleName);
+  } else {
+    const secOptions = [...sectionNames, '+ Add a new Section'];
+    const secChoice = await askChoice(`   2) Which Section inside "${moduleName}"?`, secOptions);
+    sectionName = secChoice === sectionNames.length ? await addNewSection(modules, moduleName) : sectionNames[secChoice];
+  }
+
+  const section = modules[moduleName].sections[sectionName];
+  const subsectionNames = Object.keys(section.subsections);
+  const subOptions = [...subsectionNames, '+ Add a new Subsection'];
+  const subChoice = await askChoice(`      3) Which Subsection inside "${sectionName}"?`, subOptions);
 
   let subsectionName;
   if (subChoice === subsectionNames.length) {
-    subsectionName = await addNewSubsection(modules, moduleName);
+    subsectionName = await addNewSubsection(modules, moduleName, sectionName);
   } else {
     subsectionName = subsectionNames[subChoice];
-    const currentPath = modules[moduleName].endpoints[subsectionName];
+    const currentPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
     const currentFull = mod.baseUrl.replace(/\/$/, '') + currentPath;
     console.log(`\n   Saved endpoint: ${currentFull}`);
     const keepOrEdit = await askChoice('   What do you want to do with this endpoint?', [
@@ -93,15 +121,16 @@ async function pickEndpoint() {
     ]);
     if (keepOrEdit === 1) {
       const newPath = await ask('   New API path');
-      modules[moduleName].endpoints[subsectionName] = newPath;
+      modules[moduleName].sections[sectionName].subsections[subsectionName] = newPath;
       saveModules(modules);
-      console.log(`   ✓ Updated "${subsectionName}" under module "${moduleName}".`);
+      console.log(`   ✓ Updated "${subsectionName}".`);
     }
   }
 
   return {
-    endpoint: mod.baseUrl.replace(/\/$/, '') + modules[moduleName].endpoints[subsectionName],
+    endpoint: mod.baseUrl.replace(/\/$/, '') + modules[moduleName].sections[sectionName].subsections[subsectionName],
     moduleName,
+    sectionName,
     subsectionName,
   };
 }
@@ -109,15 +138,22 @@ async function pickEndpoint() {
 async function addNewModule(modules) {
   const moduleName = await ask('   New module name');
   const baseUrl = await ask('   Base URL for this module');
-  modules[moduleName] = { baseUrl, endpoints: {} };
-  await addNewSubsection(modules, moduleName);
+  modules[moduleName] = { baseUrl, sections: {} };
+  await addNewSection(modules, moduleName);
   return moduleName;
 }
 
-async function addNewSubsection(modules, moduleName) {
-  const subsectionName = await ask('   New API/subsection name');
+async function addNewSection(modules, moduleName) {
+  const sectionName = await ask('   New Section name');
+  modules[moduleName].sections[sectionName] = { subsections: {} };
+  await addNewSubsection(modules, moduleName, sectionName);
+  return sectionName;
+}
+
+async function addNewSubsection(modules, moduleName, sectionName) {
+  const subsectionName = await ask('   New Subsection name');
   const endpointPath = await ask('   API path');
-  modules[moduleName].endpoints[subsectionName] = endpointPath;
+  modules[moduleName].sections[sectionName].subsections[subsectionName] = endpointPath;
   saveModules(modules);
   return subsectionName;
 }
@@ -217,7 +253,7 @@ function buildSummaryHtml(results) {
 async function main() {
   console.log('\n📋  Progressive Load Test — answer these once, then it runs every step automatically\n');
 
-  const { endpoint, moduleName, subsectionName } = await pickEndpoint();
+  const { endpoint, moduleName, sectionName, subsectionName } = await pickEndpoint();
   console.log(`\n   → Endpoint selected: ${endpoint}\n`);
 
   const method = (await ask('HTTP Method (GET/POST/PUT/DELETE)', 'GET')).toUpperCase();
@@ -259,7 +295,7 @@ async function main() {
     fs.writeFileSync(
       'reports/last-run-config.json',
       JSON.stringify({
-        endpoint, moduleName, subsectionName, method, body,
+        endpoint, moduleName, sectionName, subsectionName, method, body,
         startVU: String(startVU), rampTime, targetVU: String(targetVU),
         maxResponseTime, maxErrorRate,
       }, null, 2)
