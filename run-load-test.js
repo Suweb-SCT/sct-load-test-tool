@@ -41,12 +41,30 @@ async function askChoice(question, options) {
 
 function loadModules() {
   if (!fs.existsSync(MODULES_PATH)) return {};
+  let modules;
   try {
-    return JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8'));
+    modules = JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8'));
   } catch (e) {
     console.log('   ⚠️  modules.json is corrupted or unreadable, starting fresh.');
     return {};
   }
+  // Migrate old 2-level format (module -> endpoints) to the new 3-level
+  // format (module -> sections -> subsections) so nothing saved before is lost.
+  let migrated = false;
+  Object.keys(modules).forEach((modName) => {
+    const mod = modules[modName];
+    if (mod.endpoints && !mod.sections) {
+      mod.sections = { General: { subsections: mod.endpoints } };
+      delete mod.endpoints;
+      migrated = true;
+    }
+    if (!mod.sections) mod.sections = {};
+  });
+  if (migrated) {
+    console.log('   ℹ️  Upgraded modules.json to the new Module → Section → Subsection format (old endpoints moved under a "General" section).');
+    saveModules(modules);
+  }
+  return modules;
 }
 
 function saveModules(modules) {
@@ -72,16 +90,31 @@ async function pickEndpoint() {
   }
 
   const mod = modules[moduleName];
-  const subsectionNames = Object.keys(mod.endpoints);
-  const subOptions = [...subsectionNames, '+ Add a new API/subsection to this module'];
-  const subChoice = await askChoice(`   Which API/subsection inside "${moduleName}"?`, subOptions);
+  const sectionNames = Object.keys(mod.sections);
+  let sectionName;
+  if (sectionNames.length === 0) {
+    sectionName = await addNewSection(modules, moduleName);
+  } else {
+    const secOptions = [...sectionNames, '+ Add a new Section'];
+    const secChoice = await askChoice(`   2) Which Section inside "${moduleName}"?`, secOptions);
+    if (secChoice === sectionNames.length) {
+      sectionName = await addNewSection(modules, moduleName);
+    } else {
+      sectionName = sectionNames[secChoice];
+    }
+  }
+
+  const section = modules[moduleName].sections[sectionName];
+  const subsectionNames = Object.keys(section.subsections);
+  const subOptions = [...subsectionNames, '+ Add a new Subsection'];
+  const subChoice = await askChoice(`      3) Which Subsection inside "${sectionName}"?`, subOptions);
 
   let subsectionName;
   if (subChoice === subsectionNames.length) {
-    subsectionName = await addNewSubsection(modules, moduleName);
+    subsectionName = await addNewSubsection(modules, moduleName, sectionName);
   } else {
     subsectionName = subsectionNames[subChoice];
-    const currentPath = modules[moduleName].endpoints[subsectionName];
+    const currentPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
     const currentFull = mod.baseUrl.replace(/\/$/, '') + currentPath;
     console.log(`\n   Saved endpoint: ${currentFull}`);
     const keepOrEdit = await askChoice('   What do you want to do with this endpoint?', [
@@ -90,30 +123,37 @@ async function pickEndpoint() {
     ]);
     if (keepOrEdit === 1) {
       const newPath = await ask('   New API path');
-      modules[moduleName].endpoints[subsectionName] = newPath;
+      modules[moduleName].sections[sectionName].subsections[subsectionName] = newPath;
       saveModules(modules);
-      console.log(`   ✓ Updated "${subsectionName}" under module "${moduleName}".`);
+      console.log(`   ✓ Updated "${subsectionName}".`);
     }
   }
 
-  const fullEndpoint = mod.baseUrl.replace(/\/$/, '') + modules[moduleName].endpoints[subsectionName];
-  return { endpoint: fullEndpoint, moduleName, subsectionName };
+  const fullEndpoint = mod.baseUrl.replace(/\/$/, '') + modules[moduleName].sections[sectionName].subsections[subsectionName];
+  return { endpoint: fullEndpoint, moduleName, sectionName, subsectionName };
 }
 
 async function addNewModule(modules) {
   const moduleName = await ask('   New module name');
   const baseUrl = await ask('   Base URL for this module');
-  modules[moduleName] = { baseUrl, endpoints: {} };
-  const subsectionName = await addNewSubsection(modules, moduleName);
+  modules[moduleName] = { baseUrl, sections: {} };
+  await addNewSection(modules, moduleName);
   return moduleName;
 }
 
-async function addNewSubsection(modules, moduleName) {
-  const subsectionName = await ask('   New API/subsection name');
+async function addNewSection(modules, moduleName) {
+  const sectionName = await ask('   New Section name');
+  modules[moduleName].sections[sectionName] = { subsections: {} };
+  await addNewSubsection(modules, moduleName, sectionName);
+  return sectionName;
+}
+
+async function addNewSubsection(modules, moduleName, sectionName) {
+  const subsectionName = await ask('   New Subsection name');
   const endpointPath = await ask('   API path');
-  modules[moduleName].endpoints[subsectionName] = endpointPath;
+  modules[moduleName].sections[sectionName].subsections[subsectionName] = endpointPath;
   saveModules(modules);
-  console.log(`   ✓ Saved "${subsectionName}" under module "${moduleName}" — it'll show up as a choice next time.`);
+  console.log(`   ✓ Saved "${subsectionName}" under Section "${sectionName}" (Module "${moduleName}") — it'll show up as a choice next time.`);
   return subsectionName;
 }
 
@@ -159,7 +199,7 @@ function openFile(filePath) {
 async function main() {
   console.log('\n📋  Load Test Configuration - please answer the following questions\n');
 
-  const { endpoint, moduleName, subsectionName } = await pickEndpoint();
+  const { endpoint, moduleName, sectionName, subsectionName } = await pickEndpoint();
   console.log(`\n   → Endpoint selected: ${endpoint}\n`);
 
   const method = (await ask('2) HTTP Method (GET/POST/PUT/DELETE)', 'GET')).toUpperCase();
@@ -187,7 +227,7 @@ async function main() {
 
   fs.writeFileSync(
     'reports/last-run-config.json',
-    JSON.stringify({ endpoint, moduleName, subsectionName, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate }, null, 2)
+    JSON.stringify({ endpoint, moduleName, sectionName, subsectionName, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate }, null, 2)
   );
 
   const env = {
