@@ -82,16 +82,37 @@ async function pickEndpoint() {
   const modules = loadModules();
   const moduleNames = Object.keys(modules);
   let moduleName;
+  let moduleIsNew = false;
   if (moduleNames.length === 0) {
     console.log('\n📦  No modules saved yet — let\'s add your first one.');
     moduleName = await addNewModule(modules);
+    moduleIsNew = true;
   } else {
     const options = [...moduleNames, '+ Add a new module'];
     const choice = await askChoice('1) Which module do you want to test?', options);
-    moduleName = choice === moduleNames.length ? await addNewModule(modules) : moduleNames[choice];
+    if (choice === moduleNames.length) {
+      moduleName = await addNewModule(modules);
+      moduleIsNew = true;
+    } else {
+      moduleName = moduleNames[choice];
+    }
   }
 
   const mod = modules[moduleName];
+
+  if (!moduleIsNew) {
+    console.log(`\n   Current Base URL: ${mod.baseUrl}`);
+    const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
+      'Use it as-is',
+      'Edit it (change the Base URL for this module)',
+    ]);
+    if (baseUrlChoice === 1) {
+      const newBaseUrl = await ask('   New Base URL');
+      mod.baseUrl = newBaseUrl;
+      saveModules(modules);
+      console.log(`   ✓ Updated Base URL for "${moduleName}".`);
+    }
+  }
   const sectionNames = Object.keys(mod.sections);
   let sectionName;
   if (sectionNames.length === 0) {
