@@ -81,6 +81,21 @@ async function pickEndpoint() {
     subsectionName = await addNewSubsection(modules, moduleName);
   } else {
     subsectionName = subsectionNames[subChoice];
+    // Existing subsection picked — let the user keep it as-is or edit it,
+    // rather than being stuck with whatever was saved before.
+    const currentPath = modules[moduleName].endpoints[subsectionName];
+    const currentFull = mod.baseUrl.replace(/\/$/, '') + currentPath;
+    console.log(`\n   Saved endpoint: ${currentFull}`);
+    const keepOrEdit = await askChoice('   What do you want to do with this endpoint?', [
+      'Use it as-is',
+      'Edit it (update the saved API path)',
+    ]);
+    if (keepOrEdit === 1) {
+      const newPath = await ask('   New API path', currentPath);
+      modules[moduleName].endpoints[subsectionName] = newPath;
+      saveModules(modules);
+      console.log(`   \u2713 Updated "${subsectionName}" under module "${moduleName}".`);
+    }
   }
 
   const fullEndpoint = mod.baseUrl.replace(/\/$/, '') + modules[moduleName].endpoints[subsectionName];
