@@ -9,12 +9,15 @@
 //      like logo.png are downloaded as raw bytes so the image isn't
 //      corrupted)
 //   2. Overwrites the local copies
-//   3. Then runs the load test (node run-load-test.js) as usual
+//   3. Asks which test to run: a normal single-ramp test, or a
+//      progressive multi-step test (30 -> 50 -> 75 -> 100 -> 150 -> 200)
+//   4. Runs the chosen script
 // ─────────────────────────────────────────────────────────────
 
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 const { spawnSync } = require('child_process');
 
 // ── Configure your repo here (edit these 3 lines only if the repo moves) ──
@@ -27,6 +30,7 @@ const BRANCH = 'main';
 // if you ever add more assets (e.g. a favicon or a second logo variant).
 const FILES = [
   'run-load-test.js',
+  'run-progressive-load-test.js',
   'generate-pdf-report.js',
   'generate-html-report.js',
   'show-report.js',
@@ -92,11 +96,40 @@ async function updateFiles() {
   console.log('\n\u2705  Up to date.\n');
 }
 
+function askChoice(question, options) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    console.log(`\n${question}`);
+    options.forEach((opt, i) => console.log(`   ${i + 1}) ${opt}`));
+
+    function prompt() {
+      rl.question(`Enter a number (1-${options.length}): `, (answer) => {
+        const num = parseInt(answer.trim(), 10);
+        if (!Number.isNaN(num) && num >= 1 && num <= options.length) {
+          rl.close();
+          resolve(num - 1);
+        } else {
+          console.log(`   \u26A0\uFE0F  Please enter a number between 1 and ${options.length}.`);
+          prompt();
+        }
+      });
+    }
+    prompt();
+  });
+}
+
 async function main() {
   await updateFiles();
 
-  console.log('\u{1F680}  Starting the load test...\n');
-  const result = spawnSync('node', ['run-load-test.js'], { stdio: 'inherit' });
+  const choice = await askChoice('Which test do you want to run?', [
+    'Normal single test (one ramp, one report)',
+    'Progressive step test (30 \u2192 50 \u2192 75 \u2192 100 \u2192 150 \u2192 200, with a combined summary)',
+  ]);
+
+  const scriptToRun = choice === 1 ? 'run-progressive-load-test.js' : 'run-load-test.js';
+
+  console.log(`\n\u{1F680}  Starting ${scriptToRun}...\n`);
+  const result = spawnSync('node', [scriptToRun], { stdio: 'inherit' });
   process.exit(result.status ?? 1);
 }
 
