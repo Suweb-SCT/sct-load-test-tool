@@ -91,7 +91,7 @@ async function pickEndpoint() {
       'Edit it (update the saved API path)',
     ]);
     if (keepOrEdit === 1) {
-      const newPath = await ask('   New API path', currentPath);
+      const newPath = await ask('   New API path');
       modules[moduleName].endpoints[subsectionName] = newPath;
       saveModules(modules);
       console.log(`   \u2713 Updated "${subsectionName}" under module "${moduleName}".`);
