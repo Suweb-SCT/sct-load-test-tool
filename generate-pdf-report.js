@@ -37,6 +37,14 @@ function friendlyThreshold(expr) {
   return expr;
 }
 
+function detectEnvironment(endpoint) {
+  const text = (endpoint || '').toLowerCase();
+  if (/localhost|127\.0\.0\.1|\.local\b|\.test\b/.test(text)) return { label: 'LOCAL', color: '#8A8A8A' };
+  if (/staging|stage|uat|qa\./.test(text)) return { label: 'STAGING', color: '#E8A33D' };
+  if (/prod(uction)?\./.test(text)) return { label: 'PRODUCTION', color: '#D9534F' };
+  return null;
+}
+
 const reqDuration = getMetricValues('http_req_duration') || {};
 const reqFailed = getMetricValues('http_req_failed') || {};
 const reqs = getMetricValues('http_reqs') || {};
@@ -119,6 +127,13 @@ doc.fillColor(GRAY).fontSize(8.5).font('Helvetica').text(new Date().toLocaleStri
 doc.moveDown(0.3);
 doc.fontSize(12).font('Helvetica-Bold').fillColor(overallPass ? GREEN : RED)
   .text(overallPass ? 'PASS  -  all thresholds met' : 'FAIL  -  one or more thresholds breached', { width: CONTENT_W, align: 'center' });
+
+const envInfo = detectEnvironment(config.endpoint);
+if (envInfo) {
+  doc.moveDown(0.15);
+  doc.fontSize(7.5).font('Helvetica-Bold').fillColor(envInfo.color)
+    .text(`ENVIRONMENT: ${envInfo.label}`, { width: CONTENT_W, align: 'center', characterSpacing: 0.5 });
+}
 doc.moveDown(0.6);
 
 const row1Y = doc.y;
@@ -162,6 +177,10 @@ kpis2.forEach((k, i) => {
 
 doc.y = row1Y + row1H + GAP;
 
+const locationLabel = (config.moduleName && config.sectionName && config.subsectionName)
+  ? `${config.moduleName} \u203A ${config.sectionName} \u203A ${config.subsectionName}`
+  : null;
+
 const cfgLines = [
   `${config.method || '-'} ${config.endpoint || '-'}`,
 ];
@@ -171,14 +190,21 @@ const endpointHeight = doc.heightOfString(cfgLines[0], { width: CONTENT_W - 24 -
 const titleOffset = 26;
 const rowGap = 18;
 const bottomPadding = 20;
-const cfgCardH = titleOffset + Math.max(12, endpointHeight) + rowGap + 12 + rowGap + 12 + bottomPadding;
+const locationRowH = locationLabel ? rowGap : 0;
+const cfgCardH = titleOffset + locationRowH + Math.max(12, endpointHeight) + rowGap + 12 + rowGap + 12 + bottomPadding;
 
 const cfg = cardBox(MARGIN, doc.y, CONTENT_W, cfgCardH, 'Test Configuration');
-doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Endpoint', cfg.innerX, cfg.innerY, { width: 90 });
+let cfgY0 = cfg.innerY;
+if (locationLabel) {
+  doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Location', cfg.innerX, cfgY0, { width: 90 });
+  doc.font('Helvetica').fontSize(8).fillColor(DARK).text(locationLabel, cfg.innerX + 90, cfgY0, { width: cfg.innerW - 90 });
+  cfgY0 += locationRowH;
+}
+doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Endpoint', cfg.innerX, cfgY0, { width: 90 });
 doc.font('Helvetica').fontSize(8).fillColor(DARK)
-  .text(cfgLines[0], cfg.innerX + 90, cfg.innerY, { width: cfg.innerW - 90 });
+  .text(cfgLines[0], cfg.innerX + 90, cfgY0, { width: cfg.innerW - 90 });
 
-let cfgY2 = cfg.innerY + Math.max(12, endpointHeight) + rowGap;
+let cfgY2 = cfgY0 + Math.max(12, endpointHeight) + rowGap;
 doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Virtual Users', cfg.innerX, cfgY2, { width: 90, continued: false });
 doc.font('Helvetica').fontSize(8).fillColor(DARK)
   .text(`${config.startVU || '-'} -> ${config.targetVU || '-'}  (ramp ${config.rampTime || '-'})`, cfg.innerX + 90, cfgY2, { width: cfg.innerW - 90 });
