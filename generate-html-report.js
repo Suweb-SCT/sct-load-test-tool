@@ -55,9 +55,11 @@ const thresholdMs = parseFloat((durationInfo.expressions[0] || '').match(/<\s*([
 const checksPassRate = Math.round((checksAgg.rate || 0) * 100);
 const errorRatePct = Math.round((reqFailed.rate || 0) * 10000) / 100;
 
-const reportTitle = (config.moduleName && config.subsectionName)
-  ? `${config.moduleName} — ${config.subsectionName}`
-  : 'API Load Test Dashboard';
+const reportTitle = (config.moduleName && config.sectionName && config.subsectionName)
+  ? `${config.moduleName} — ${config.sectionName} — ${config.subsectionName}`
+  : (config.moduleName && config.subsectionName)
+    ? `${config.moduleName} — ${config.subsectionName}`
+    : 'API Load Test Dashboard';
 
 const data = {
   overallPass,
