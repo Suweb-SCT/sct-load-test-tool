@@ -48,8 +48,6 @@ function loadModules() {
     console.log('   ⚠️  modules.json is corrupted or unreadable, starting fresh.');
     return {};
   }
-  // Migrate old 2-level format (module -> endpoints) to the new 3-level
-  // format (module -> sections -> subsections) so nothing saved before is lost.
   let migrated = false;
   Object.keys(modules).forEach((modName) => {
     const mod = modules[modName];
@@ -76,20 +74,40 @@ async function pickEndpoint() {
   const moduleNames = Object.keys(modules);
 
   let moduleName;
+  let moduleIsNew = false;
   if (moduleNames.length === 0) {
     console.log('\n📦  No modules saved yet — let\'s add your first one.');
     moduleName = await addNewModule(modules);
+    moduleIsNew = true;
   } else {
     const options = [...moduleNames, '+ Add a new module'];
     const choice = await askChoice('1) Which module do you want to test?', options);
     if (choice === moduleNames.length) {
       moduleName = await addNewModule(modules);
+      moduleIsNew = true;
     } else {
       moduleName = moduleNames[choice];
     }
   }
 
   const mod = modules[moduleName];
+
+  // Let the user edit the module's Base URL on the spot — useful for
+  // pointing the same module at a different environment (staging, another
+  // server, etc.) without hand-editing modules.json.
+  if (!moduleIsNew) {
+    console.log(`\n   Current Base URL: ${mod.baseUrl}`);
+    const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
+      'Use it as-is',
+      'Edit it (change the Base URL for this module)',
+    ]);
+    if (baseUrlChoice === 1) {
+      const newBaseUrl = await ask('   New Base URL');
+      mod.baseUrl = newBaseUrl;
+      saveModules(modules);
+      console.log(`   ✓ Updated Base URL for "${moduleName}".`);
+    }
+  }
   const sectionNames = Object.keys(mod.sections);
   let sectionName;
   if (sectionNames.length === 0) {
