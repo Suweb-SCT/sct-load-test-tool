@@ -305,6 +305,30 @@ async function main() {
   const maxResponseTime = await askNumber('Response time threshold in ms (X)', '500');
   const maxErrorRate = await askNumber('Error rate threshold in % (Y)', '1');
 
+  const wantsValidation = await askChoice('Do you want to validate the response body content (not just status code)?', [
+    'No, skip this',
+    'Yes, check a field in the response body',
+  ]);
+
+  let validateEnabled = false;
+  let validateField = '';
+  let validateMode = 'exists';
+  let validateValue = '';
+
+  if (wantsValidation === 1) {
+    validateEnabled = true;
+    validateField = await ask('   Field to check (dot notation, e.g. "value" or "data.items")');
+    const modeChoice = await askChoice('   What should this field satisfy?', [
+      'Must exist (not null/undefined)',
+      'Must be a non-empty array',
+      'Must equal a specific value',
+    ]);
+    validateMode = modeChoice === 1 ? 'array' : modeChoice === 2 ? 'equals' : 'exists';
+    if (modeChoice === 2) {
+      validateValue = await ask('   Expected value (compared as text)');
+    }
+  }
+
   rl.close();
 
   console.log(`\n🚀  Will run ${VU_STEPS.length} steps: ${VU_STEPS.join(' → ')}\n`);
@@ -329,6 +353,8 @@ async function main() {
       ENDPOINT: endpoint, METHOD: method, BODY: body, API_TOKEN: token,
       START_VU: String(startVU), RAMP_TIME: rampTime, TARGET_VU: String(targetVU),
       MAX_RESPONSE_TIME: maxResponseTime, MAX_ERROR_RATE: maxErrorRate,
+      VALIDATE_ENABLED: String(validateEnabled), VALIDATE_FIELD: validateField,
+      VALIDATE_MODE: validateMode, VALIDATE_VALUE: validateValue,
     };
 
     fs.writeFileSync(
@@ -336,7 +362,7 @@ async function main() {
       JSON.stringify({
         endpoint, moduleName, sectionName, subsectionName, method, body,
         startVU: String(startVU), rampTime, targetVU: String(targetVU),
-        maxResponseTime, maxErrorRate,
+        maxResponseTime, maxErrorRate, validateEnabled, validateField, validateMode, validateValue,
       }, null, 2)
     );
 
