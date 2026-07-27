@@ -66,8 +66,18 @@ const checksPassRate = Math.round((checksAgg.rate || 0) * 100);
 const errorRatePct = Math.round((reqFailed.rate || 0) * 10000) / 100;
 const thresholdMs = parseFloat((durationInfo.expressions[0] || '').match(/<\s*([\d.]+)/)?.[1]);
 
-const ORANGE = '#FFA600', BLUE = '#005981', GREEN = '#2E9E4F', RED = '#D9534F';
+const ORANGE = '#FFA600', BLUE = '#005981', GREEN = '#2E9E4F', RED = '#D9534F', PURPLE = '#6C5CE7';
 const DARK = '#2B2B2B', GRAY = '#8A8A8A', LIGHT_BG = '#F5F5F5', BORDER = '#E5E5E5';
+
+// A distinct color per test type so PDFs sitting side by side (or in an
+// inbox/folder) can be told apart at a glance without opening each one.
+function getTestTypeInfo(testType) {
+  if (testType === 'progressive') return { label: 'PROGRESSIVE STEP', color: ORANGE };
+  if (testType === 'spike') return { label: 'SPIKE TEST', color: RED };
+  if (testType === 'multi') return { label: 'MULTI-ENDPOINT TEST', color: PURPLE };
+  return { label: 'LOAD TEST', color: BLUE };
+}
+const testTypeInfo = getTestTypeInfo(config.testType);
 
 const MARGIN = 40;
 const doc = new PDFDocument({ margin: MARGIN, size: 'A4', bufferPages: true });
@@ -109,11 +119,15 @@ if (hasLogo) {
   }
 }
 
-const reportTitle = (config.moduleName && config.sectionName && config.subsectionName)
-  ? `${config.moduleName} — ${config.sectionName} — ${config.subsectionName}`
-  : (config.moduleName && config.subsectionName)
-    ? `${config.moduleName} — ${config.subsectionName}`
-    : 'API Load Test Dashboard';
+const reportTitle = config.testType === 'multi' && config.endpoints
+  ? `Multi-Endpoint Load Test (${config.endpoints.length} endpoints)`
+  : (config.moduleName && config.sectionName && config.subsectionName)
+    ? `${config.moduleName} — ${config.sectionName} — ${config.subsectionName}`
+    : (config.moduleName && config.subsectionName)
+      ? `${config.moduleName} — ${config.subsectionName}`
+      : 'API Load Test Dashboard';
+
+const testTypeLabel = testTypeInfo.label;
 
 doc.fillColor(BLUE).fontSize(20).font('Helvetica-Bold').text(reportTitle, MARGIN, MARGIN + logoHeight, { width: CONTENT_W, align: 'center' });
 doc.moveDown(0.25);
@@ -123,7 +137,26 @@ if (reportTitle !== 'API Load Test Dashboard') {
   doc.fillColor(GRAY).fontSize(8.5).font('Helvetica').text('API Load Test Dashboard', { width: CONTENT_W, align: 'center' });
 }
 doc.fillColor(GRAY).fontSize(8.5).font('Helvetica').text(new Date().toLocaleString(), { width: CONTENT_W, align: 'center' });
+doc.moveDown(0.25);
+
+// Prominent color-coded pill so this report's TYPE (Load / Progressive /
+// Spike / Multi-Endpoint) is obvious at a glance — helpful when several
+// PDFs are sitting in the same folder or inbox.
+(function drawTestTypeBadge() {
+  const label = testTypeInfo.label;
+  doc.font('Helvetica-Bold').fontSize(8.5);
+  const textW = doc.widthOfString(label) + label.length * 0.4;
+  const padX = 10, padY = 4;
+  const boxW = textW + padX * 2;
+  const boxH = 14 + padY;
+  const boxX = MARGIN + (CONTENT_W - boxW) / 2;
+  const boxY = doc.y;
+  doc.roundedRect(boxX, boxY, boxW, boxH, boxH / 2).fillColor(testTypeInfo.color).fill();
+  doc.fillColor('#FFFFFF').text(label, boxX, boxY + boxH / 2 - 5, { width: boxW, align: 'center', characterSpacing: 0.4 });
+  doc.y = boxY + boxH;
+})();
 doc.moveDown(0.3);
+
 doc.fontSize(12).font('Helvetica-Bold').fillColor(overallPass ? GREEN : RED)
   .text(overallPass ? 'PASS  -  all thresholds met' : 'FAIL  -  one or more thresholds breached', { width: CONTENT_W, align: 'center' });
 
@@ -180,33 +213,45 @@ const locationLabel = (config.moduleName && config.sectionName && config.subsect
   ? `${config.moduleName} › ${config.sectionName} › ${config.subsectionName}`
   : null;
 
-const cfgLines = [
-  `${config.method || '-'} ${config.endpoint || '-'}`,
-];
+const endpointText = (config.testType === 'multi' && Array.isArray(config.endpoints))
+  ? config.endpoints.map((e) => `[w${e.weight || 1}] ${e.method} ${e.url}`).join('   |   ')
+  : `${config.method || '-'} ${config.endpoint || '-'}`;
+
+const vuText = config.testType === 'spike'
+  ? `${config.startVU || '-'} baseline → ${config.targetVU || '-'} spike  (jump ${config.rampTime || '-'}, hold ${config.spikeHold || '-'}, recover ${config.recoveryTime || '-'})`
+  : `${config.startVU || '-'} -> ${config.targetVU || '-'}  (ramp ${config.rampTime || '-'})`;
+
 doc.font('Helvetica').fontSize(8);
-const endpointHeight = doc.heightOfString(cfgLines[0], { width: CONTENT_W - 24 - 90 });
+const endpointHeight = doc.heightOfString(endpointText, { width: CONTENT_W - 24 - 90 });
 
 const titleOffset = 26;
 const rowGap = 18;
 const bottomPadding = 20;
+const testTypeRowH = testTypeLabel ? rowGap : 0;
 const locationRowH = locationLabel ? rowGap : 0;
-const cfgCardH = titleOffset + locationRowH + Math.max(12, endpointHeight) + rowGap + 12 + rowGap + 12 + bottomPadding;
+const endpointLabel = config.testType === 'multi' ? 'Endpoints' : 'Endpoint';
+const cfgCardH = titleOffset + testTypeRowH + locationRowH + Math.max(12, endpointHeight) + rowGap + 12 + rowGap + 12 + bottomPadding;
 
 const cfg = cardBox(MARGIN, doc.y, CONTENT_W, cfgCardH, 'Test Configuration');
 let cfgY0 = cfg.innerY;
+if (testTypeLabel) {
+  doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Test Type', cfg.innerX, cfgY0, { width: 90 });
+  doc.font('Helvetica').fontSize(8).fillColor(DARK).text(testTypeLabel, cfg.innerX + 90, cfgY0, { width: cfg.innerW - 90 });
+  cfgY0 += testTypeRowH;
+}
 if (locationLabel) {
   doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Location', cfg.innerX, cfgY0, { width: 90 });
   doc.font('Helvetica').fontSize(8).fillColor(DARK).text(locationLabel, cfg.innerX + 90, cfgY0, { width: cfg.innerW - 90 });
   cfgY0 += locationRowH;
 }
-doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Endpoint', cfg.innerX, cfgY0, { width: 90 });
+doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text(endpointLabel, cfg.innerX, cfgY0, { width: 90 });
 doc.font('Helvetica').fontSize(8).fillColor(DARK)
-  .text(cfgLines[0], cfg.innerX + 90, cfgY0, { width: cfg.innerW - 90 });
+  .text(endpointText, cfg.innerX + 90, cfgY0, { width: cfg.innerW - 90 });
 
 let cfgY2 = cfgY0 + Math.max(12, endpointHeight) + rowGap;
 doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Virtual Users', cfg.innerX, cfgY2, { width: 90, continued: false });
 doc.font('Helvetica').fontSize(8).fillColor(DARK)
-  .text(`${config.startVU || '-'} -> ${config.targetVU || '-'}  (ramp ${config.rampTime || '-'})`, cfg.innerX + 90, cfgY2, { width: cfg.innerW - 90 });
+  .text(vuText, cfg.innerX + 90, cfgY2, { width: cfg.innerW - 90 });
 
 cfgY2 += rowGap;
 doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Thresholds', cfg.innerX, cfgY2, { width: 90 });
