@@ -361,6 +361,7 @@ async function main() {
       'reports/last-run-config.json',
       JSON.stringify({
         endpoint, moduleName, sectionName, subsectionName, method, body,
+        testType: 'progressive',
         startVU: String(startVU), rampTime, targetVU: String(targetVU),
         maxResponseTime, maxErrorRate, validateEnabled, validateField, validateMode, validateValue,
       }, null, 2)
