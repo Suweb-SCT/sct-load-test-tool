@@ -139,7 +139,7 @@ function svgBarChart(bars, thresholdValue) {
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="220" style="max-width:640px">${barsSvg}${thresholdSvg}</svg>`;
 }
 
-const checksGaugeColor = data.checksPassRate >= 90 ? '#2E9E4F' : data.checksPassRate >= 50 ? '#E8A33D' : '#D9534F';
+const checksGaugeColor = data.checksPassRate === 100 ? '#2E9E4F' : '#D9534F';
 const errorGaugeColor = data.errorPassed === false ? '#D9534F' : '#2E9E4F';
 
 const barChartSvg = svgBarChart([
@@ -173,7 +173,7 @@ const html = `<!DOCTYPE html>
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px; align-items: start; }
   .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; min-width: 0; }
   .card h3 { margin: 0 0 12px 0; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dark); }
-  .gauge-wrap { position: relative; height: 100px; display: flex; justify-content: center; }
+  .gauge-wrap { position: relative; height: 100px; display: flex; justify-content: center; margin-top: 6px; }
   .gauge-value { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); font-size: 26px; font-weight: 700; }
   .gauge-label { text-align: center; margin-top: 20px; font-size: 13px; color: var(--dark); }
   .kpi-row { display: flex; gap: 12px; }
