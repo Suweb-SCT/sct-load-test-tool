@@ -92,9 +92,8 @@ function drawGauge(cx, cy, r, value, color) {
   const endAngle = Math.PI + (Math.PI * clamped / 100);
   const arcX = cx + r * Math.cos(endAngle);
   const arcY = cy + r * Math.sin(endAngle);
-  const largeArc = clamped > 50 ? 1 : 0;
-  doc.path(`M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy}`).lineWidth(9).strokeColor('#EDEDED').stroke();
-  doc.path(`M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${arcX} ${arcY}`).lineWidth(9).strokeColor(color).stroke();
+  doc.path(`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`).lineWidth(9).strokeColor('#EDEDED').stroke();
+  doc.path(`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${arcX} ${arcY}`).lineWidth(9).strokeColor(color).stroke();
 }
 
 const LOGO_PATH = 'logo.png';
@@ -140,13 +139,13 @@ const row1Y = doc.y;
 const row1H = 112;
 const cardW3 = (CONTENT_W - GAP * 2) / 3;
 
-const checksColor = checksPassRate === 100 ? GREEN : RED;
+const checksColor = GREEN;
 const c1 = cardBox(MARGIN, row1Y, cardW3, row1H, 'Checks Passed');
 drawGauge(c1.innerX + c1.innerW / 2, c1.innerY + 50, 36, checksPassRate, checksColor);
 doc.font('Helvetica-Bold').fontSize(15).fillColor(DARK).text(`${checksPassRate}%`, c1.innerX, c1.innerY + 38, { width: c1.innerW, align: 'center' });
 doc.font('Helvetica').fontSize(7.5).fillColor(DARK).text('Overall check pass rate', c1.innerX, c1.innerY + 68, { width: c1.innerW, align: 'center' });
 
-const errorColor = errorInfo.passed === false ? RED : GREEN;
+const errorColor = RED;
 const c2x = MARGIN + cardW3 + GAP;
 const c2 = cardBox(c2x, row1Y, cardW3, row1H, 'Error Rate');
 drawGauge(c2.innerX + c2.innerW / 2, c2.innerY + 50, 36, Math.min(errorRatePct, 100), errorColor);
