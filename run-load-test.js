@@ -174,10 +174,6 @@ async function addNewSubsection(modules, moduleName, sectionName) {
   return subsectionName;
 }
 
-// If someone pastes a full URL (including the base URL, or any http:// / https://
-// host) into the "API path" prompt by mistake, the base URL would get prepended
-// a second time later (e.g. "http://host.comhttp://host.com/api/x"), which fails
-// DNS lookup. Detect that and strip the accidental host so only the path remains.
 function stripAccidentalHost(inputPath, baseUrl) {
   if (!/^https?:\/\//i.test(inputPath)) return inputPath;
   const base = (baseUrl || '').replace(/\/$/, '');
@@ -254,18 +250,47 @@ async function main() {
   const maxResponseTime = await askNumber('7) Response time threshold in ms (X)', '500');
   const maxErrorRate = await askNumber('8) Error rate threshold in % (Y)', '1');
 
+  const wantsValidation = await askChoice('9) Do you want to validate the response body content (not just status code)?', [
+    'No, skip this',
+    'Yes, check a field in the response body',
+  ]);
+
+  let validateEnabled = false;
+  let validateField = '';
+  let validateMode = 'exists';
+  let validateValue = '';
+
+  if (wantsValidation === 1) {
+    validateEnabled = true;
+    validateField = await ask('   Field to check (dot notation, e.g. "value" or "data.items")');
+    const modeChoice = await askChoice('   What should this field satisfy?', [
+      'Must exist (not null/undefined)',
+      'Must be a non-empty array',
+      'Must equal a specific value',
+    ]);
+    validateMode = modeChoice === 1 ? 'array' : modeChoice === 2 ? 'equals' : 'exists';
+    if (modeChoice === 2) {
+      validateValue = await ask('   Expected value (compared as text)');
+    }
+  }
+
   rl.close();
 
   console.log('\n🚀  Configuration complete. Starting k6 load test...\n');
   console.log(`   Endpoint : ${method} ${endpoint}`);
   console.log(`   VU       : ${startVU} -> ${targetVU} (ramp: ${rampTime})`);
-  console.log(`   Threshold: p95 < ${maxResponseTime}ms, error rate < ${maxErrorRate}%\n`);
+  console.log(`   Threshold: p95 < ${maxResponseTime}ms, error rate < ${maxErrorRate}%`);
+  if (validateEnabled) {
+    console.log(`   Validation: body.${validateField} ${validateMode === 'array' ? 'must be a non-empty array' : validateMode === 'equals' ? `must equal "${validateValue}"` : 'must exist'}\n`);
+  } else {
+    console.log('');
+  }
 
   if (!fs.existsSync('reports')) fs.mkdirSync('reports');
 
   fs.writeFileSync(
     'reports/last-run-config.json',
-    JSON.stringify({ endpoint, moduleName, sectionName, subsectionName, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate }, null, 2)
+    JSON.stringify({ endpoint, moduleName, sectionName, subsectionName, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate, validateEnabled, validateField, validateMode, validateValue }, null, 2)
   );
 
   const env = {
@@ -273,6 +298,8 @@ async function main() {
     ENDPOINT: endpoint, METHOD: method, BODY: body, API_TOKEN: token,
     START_VU: startVU, RAMP_TIME: rampTime, TARGET_VU: targetVU,
     MAX_RESPONSE_TIME: maxResponseTime, MAX_ERROR_RATE: maxErrorRate,
+    VALIDATE_ENABLED: String(validateEnabled), VALIDATE_FIELD: validateField,
+    VALIDATE_MODE: validateMode, VALIDATE_VALUE: validateValue,
   };
 
   const k6 = spawn('k6', ['run', 'load-tests/load-test.js'], { stdio: 'inherit', env });
