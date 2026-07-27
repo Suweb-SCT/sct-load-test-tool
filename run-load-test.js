@@ -290,7 +290,7 @@ async function main() {
 
   fs.writeFileSync(
     'reports/last-run-config.json',
-    JSON.stringify({ endpoint, moduleName, sectionName, subsectionName, method, body, startVU, rampTime, targetVU, maxResponseTime, maxErrorRate, validateEnabled, validateField, validateMode, validateValue }, null, 2)
+    JSON.stringify({ endpoint, moduleName, sectionName, subsectionName, method, body, testType: 'load', startVU, rampTime, targetVU, maxResponseTime, maxErrorRate, validateEnabled, validateField, validateMode, validateValue }, null, 2)
   );
 
   const env = {
