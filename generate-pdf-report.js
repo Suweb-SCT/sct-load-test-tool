@@ -137,21 +137,21 @@ if (envInfo) {
 doc.moveDown(0.6);
 
 const row1Y = doc.y;
-const row1H = 104;
+const row1H = 112;
 const cardW3 = (CONTENT_W - GAP * 2) / 3;
 
-const checksColor = checksPassRate >= 90 ? GREEN : checksPassRate >= 50 ? ORANGE : RED;
+const checksColor = checksPassRate === 100 ? GREEN : RED;
 const c1 = cardBox(MARGIN, row1Y, cardW3, row1H, 'Checks Passed');
-drawGauge(c1.innerX + c1.innerW / 2, c1.innerY + 44, 38, checksPassRate, checksColor);
-doc.font('Helvetica-Bold').fontSize(15).fillColor(DARK).text(`${checksPassRate}%`, c1.innerX, c1.innerY + 32, { width: c1.innerW, align: 'center' });
-doc.font('Helvetica').fontSize(7.5).fillColor(DARK).text('Overall check pass rate', c1.innerX, c1.innerY + 62, { width: c1.innerW, align: 'center' });
+drawGauge(c1.innerX + c1.innerW / 2, c1.innerY + 50, 36, checksPassRate, checksColor);
+doc.font('Helvetica-Bold').fontSize(15).fillColor(DARK).text(`${checksPassRate}%`, c1.innerX, c1.innerY + 38, { width: c1.innerW, align: 'center' });
+doc.font('Helvetica').fontSize(7.5).fillColor(DARK).text('Overall check pass rate', c1.innerX, c1.innerY + 68, { width: c1.innerW, align: 'center' });
 
 const errorColor = errorInfo.passed === false ? RED : GREEN;
 const c2x = MARGIN + cardW3 + GAP;
 const c2 = cardBox(c2x, row1Y, cardW3, row1H, 'Error Rate');
-drawGauge(c2.innerX + c2.innerW / 2, c2.innerY + 44, 38, Math.min(errorRatePct, 100), errorColor);
-doc.font('Helvetica-Bold').fontSize(15).fillColor(DARK).text(`${errorRatePct}%`, c2.innerX, c2.innerY + 32, { width: c2.innerW, align: 'center' });
-doc.font('Helvetica').fontSize(7.5).fillColor(DARK).text(`Threshold: < ${config.maxErrorRate || '-'}%`, c2.innerX, c2.innerY + 62, { width: c2.innerW, align: 'center' });
+drawGauge(c2.innerX + c2.innerW / 2, c2.innerY + 50, 36, Math.min(errorRatePct, 100), errorColor);
+doc.font('Helvetica-Bold').fontSize(15).fillColor(DARK).text(`${errorRatePct}%`, c2.innerX, c2.innerY + 38, { width: c2.innerW, align: 'center' });
+doc.font('Helvetica').fontSize(7.5).fillColor(DARK).text(`Threshold: < ${config.maxErrorRate || '-'}%`, c2.innerX, c2.innerY + 68, { width: c2.innerW, align: 'center' });
 
 const c3x = MARGIN + (cardW3 + GAP) * 2;
 const c3 = cardBox(c3x, row1Y, cardW3, row1H, 'Requests');
@@ -178,7 +178,7 @@ kpis2.forEach((k, i) => {
 doc.y = row1Y + row1H + GAP;
 
 const locationLabel = (config.moduleName && config.sectionName && config.subsectionName)
-  ? `${config.moduleName} \u203A ${config.sectionName} \u203A ${config.subsectionName}`
+  ? `${config.moduleName} › ${config.sectionName} › ${config.subsectionName}`
   : null;
 
 const cfgLines = [
