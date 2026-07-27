@@ -9,8 +9,10 @@
 //      like logo.png are downloaded as raw bytes so the image isn't
 //      corrupted)
 //   2. Overwrites the local copies
-//   3. Asks which test to run: a normal single-ramp test, or a
-//      progressive multi-step test (30 -> 50 -> 75 -> 100 -> 150 -> 200)
+//   3. Asks which test to run: a normal single-ramp test, a progressive
+//      multi-step test (30 -> 50 -> 75 -> 100 -> 150 -> 200), a spike
+//      test (sudden baseline -> peak -> recovery), or a multi-endpoint
+//      test (several weighted endpoints mixed into one run)
 //   4. Runs the chosen script
 // ─────────────────────────────────────────────────────────────
 
@@ -31,6 +33,8 @@ const BRANCH = 'main';
 const FILES = [
   'run-load-test.js',
   'run-progressive-load-test.js',
+  'run-spike-load-test.js',
+  'run-multi-endpoint-load-test.js',
   'generate-pdf-report.js',
   'generate-html-report.js',
   'show-report.js',
@@ -48,8 +52,6 @@ function rawUrl(filePath) {
   return `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${filePath}`;
 }
 
-// Downloads a URL and resolves with a Buffer (works for both text and binary;
-// text files are converted to a UTF-8 string by the caller when needed).
 function download(url) {
   return new Promise((resolve, reject) => {
     https
@@ -72,7 +74,7 @@ function download(url) {
 }
 
 async function updateFiles() {
-  console.log('\u{1F504}  Checking for the latest version...\n');
+  console.log('🔄  Checking for the latest version...\n');
 
   for (const filePath of FILES) {
     try {
@@ -82,18 +84,18 @@ async function updateFiles() {
         fs.mkdirSync(dir, { recursive: true });
       }
       if (isBinary(filePath)) {
-        fs.writeFileSync(filePath, buffer); // raw bytes, no encoding
+        fs.writeFileSync(filePath, buffer);
       } else {
         fs.writeFileSync(filePath, buffer.toString('utf-8'), 'utf-8');
       }
-      console.log(`   \u2713 ${filePath}`);
+      console.log(`   ✓ ${filePath}`);
     } catch (err) {
-      console.error(`   \u2717 Failed to update ${filePath}: ${err.message}`);
+      console.error(`   ✗ Failed to update ${filePath}: ${err.message}`);
       console.error('     Continuing with the local copy of this file, if one exists.');
     }
   }
 
-  console.log('\n\u2705  Up to date.\n');
+  console.log('\n✅  Up to date.\n');
 }
 
 function askChoice(question, options) {
@@ -109,7 +111,7 @@ function askChoice(question, options) {
           rl.close();
           resolve(num - 1);
         } else {
-          console.log(`   \u26A0\uFE0F  Please enter a number between 1 and ${options.length}.`);
+          console.log(`   ⚠️  Please enter a number between 1 and ${options.length}.`);
           prompt();
         }
       });
@@ -123,12 +125,20 @@ async function main() {
 
   const choice = await askChoice('Which test do you want to run?', [
     'Normal single test (one ramp, one report)',
-    'Progressive step test (30 \u2192 50 \u2192 75 \u2192 100 \u2192 150 \u2192 200, with a combined summary)',
+    'Progressive step test (30 → 50 → 75 → 100 → 150 → 200, with a combined summary)',
+    'Spike test (sudden baseline → peak → recovery)',
+    'Multi-endpoint test (mix several weighted endpoints in one test)',
   ]);
 
-  const scriptToRun = choice === 1 ? 'run-progressive-load-test.js' : 'run-load-test.js';
+  const scriptMap = [
+    'run-load-test.js',
+    'run-progressive-load-test.js',
+    'run-spike-load-test.js',
+    'run-multi-endpoint-load-test.js',
+  ];
+  const scriptToRun = scriptMap[choice];
 
-  console.log(`\n\u{1F680}  Starting ${scriptToRun}...\n`);
+  console.log(`\n🚀  Starting ${scriptToRun}...\n`);
   const result = spawnSync('node', [scriptToRun], { stdio: 'inherit' });
   process.exit(result.status ?? 1);
 }
