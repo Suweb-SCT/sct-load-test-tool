@@ -104,9 +104,8 @@ function svgGauge(value, color) {
   const endAngle = Math.PI + (Math.PI * clamped / 100);
   const arcX = cx + r * Math.cos(endAngle);
   const arcY = cy + r * Math.sin(endAngle);
-  const largeArc = clamped > 50 ? 1 : 0;
-  const bgPath = `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy}`;
-  const valPath = `M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${arcX} ${arcY}`;
+  const bgPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
+  const valPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${arcX} ${arcY}`;
   return `<svg viewBox="0 0 180 100" width="180" height="100">
     <path d="${bgPath}" fill="none" stroke="#E8E8E8" stroke-width="16" stroke-linecap="round"/>
     <path d="${valPath}" fill="none" stroke="${color}" stroke-width="16" stroke-linecap="round"/>
@@ -139,8 +138,8 @@ function svgBarChart(bars, thresholdValue) {
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="220" style="max-width:640px">${barsSvg}${thresholdSvg}</svg>`;
 }
 
-const checksGaugeColor = data.checksPassRate === 100 ? '#2E9E4F' : '#D9534F';
-const errorGaugeColor = data.errorPassed === false ? '#D9534F' : '#2E9E4F';
+const checksGaugeColor = '#2E9E4F';
+const errorGaugeColor = '#D9534F';
 
 const barChartSvg = svgBarChart([
   { label: 'avg', value: data.avg, color: '#3D9BE8' },
