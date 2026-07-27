@@ -1,4 +1,4 @@
-﻿import http from 'k6/http';
+import http from 'k6/http';
 import { check, sleep } from 'k6';
 
 const ENDPOINT = __ENV.ENDPOINT;
@@ -11,6 +11,18 @@ const RAMP_TIME = __ENV.RAMP_TIME || '30s';
 const TARGET_VU = parseInt(__ENV.TARGET_VU || '50', 10);
 const MAX_RESPONSE_TIME = parseInt(__ENV.MAX_RESPONSE_TIME || '500', 10);
 const MAX_ERROR_RATE = parseFloat(__ENV.MAX_ERROR_RATE || '1') / 100;
+
+const VALIDATE_ENABLED = (__ENV.VALIDATE_ENABLED || 'false') === 'true';
+const VALIDATE_FIELD = __ENV.VALIDATE_FIELD || '';
+const VALIDATE_MODE = __ENV.VALIDATE_MODE || 'exists'; // 'exists' | 'array' | 'equals'
+const VALIDATE_VALUE = __ENV.VALIDATE_VALUE || '';
+
+// Reads a nested field out of a parsed JSON body using dot notation,
+// e.g. "data.items" reads body.data.items. Returns undefined if any
+// part of the path is missing.
+function getByPath(obj, path) {
+  return path.split('.').filter(Boolean).reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
+}
 
 export const options = {
   stages: [
@@ -48,6 +60,30 @@ export default function () {
     'status is 2xx': (r) => r.status >= 200 && r.status < 300,
     [`response time < ${MAX_RESPONSE_TIME}ms`]: (r) => r.timings.duration < MAX_RESPONSE_TIME,
   });
+
+  if (VALIDATE_ENABLED && VALIDATE_FIELD) {
+    let parsedBody;
+    try {
+      parsedBody = JSON.parse(res.body);
+    } catch (e) {
+      parsedBody = null;
+    }
+    const fieldValue = parsedBody !== null ? getByPath(parsedBody, VALIDATE_FIELD) : undefined;
+
+    let checkName;
+    let checkFn;
+    if (VALIDATE_MODE === 'array') {
+      checkName = `body.${VALIDATE_FIELD} is a non-empty array`;
+      checkFn = () => Array.isArray(fieldValue) && fieldValue.length > 0;
+    } else if (VALIDATE_MODE === 'equals') {
+      checkName = `body.${VALIDATE_FIELD} equals "${VALIDATE_VALUE}"`;
+      checkFn = () => String(fieldValue) === VALIDATE_VALUE;
+    } else {
+      checkName = `body.${VALIDATE_FIELD} exists`;
+      checkFn = () => fieldValue !== undefined && fieldValue !== null;
+    }
+    check(res, { [checkName]: checkFn });
+  }
 
   sleep(1);
 }
