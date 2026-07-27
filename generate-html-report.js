@@ -55,11 +55,22 @@ const thresholdMs = parseFloat((durationInfo.expressions[0] || '').match(/<\s*([
 const checksPassRate = Math.round((checksAgg.rate || 0) * 100);
 const errorRatePct = Math.round((reqFailed.rate || 0) * 10000) / 100;
 
-const reportTitle = (config.moduleName && config.sectionName && config.subsectionName)
-  ? `${config.moduleName} — ${config.sectionName} — ${config.subsectionName}`
-  : (config.moduleName && config.subsectionName)
-    ? `${config.moduleName} — ${config.subsectionName}`
-    : 'API Load Test Dashboard';
+const reportTitle = config.testType === 'multi' && config.endpoints
+  ? `Multi-Endpoint Load Test (${config.endpoints.length} endpoints)`
+  : (config.moduleName && config.sectionName && config.subsectionName)
+    ? `${config.moduleName} — ${config.sectionName} — ${config.subsectionName}`
+    : (config.moduleName && config.subsectionName)
+      ? `${config.moduleName} — ${config.subsectionName}`
+      : 'API Load Test Dashboard';
+
+function getTestTypeInfo(testType) {
+  if (testType === 'progressive') return { label: 'PROGRESSIVE STEP', color: '#FFA600' };
+  if (testType === 'spike') return { label: 'SPIKE TEST', color: '#D9534F' };
+  if (testType === 'multi') return { label: 'MULTI-ENDPOINT TEST', color: '#6C5CE7' };
+  return { label: 'LOAD TEST', color: '#005981' };
+}
+const testTypeInfo = getTestTypeInfo(config.testType);
+const testTypeLabel = testTypeInfo.label;
 
 function detectEnvironment(endpoint) {
   const text = (endpoint || '').toLowerCase();
@@ -78,8 +89,15 @@ const data = {
   reportTitle,
   envInfo,
   locationLabel,
-  endpoint: `${config.method || '-'} ${config.endpoint || '-'}`,
-  vu: `${config.startVU || '-'} → ${config.targetVU || '-'} (ramp ${config.rampTime || '-'})`,
+  testTypeLabel,
+  testTypeInfo,
+  endpoint: (config.testType === 'multi' && Array.isArray(config.endpoints))
+    ? config.endpoints.map((e) => `[w${e.weight || 1}] ${e.method} ${e.url}`).join('<br>')
+    : `${config.method || '-'} ${config.endpoint || '-'}`,
+  endpointLabel: config.testType === 'multi' ? 'Endpoints' : 'Endpoint',
+  vu: config.testType === 'spike'
+    ? `${config.startVU || '-'} baseline → ${config.targetVU || '-'} spike (jump ${config.rampTime || '-'}, hold ${config.spikeHold || '-'}, recover ${config.recoveryTime || '-'})`
+    : `${config.startVU || '-'} → ${config.targetVU || '-'} (ramp ${config.rampTime || '-'})`,
   thresholdMs,
   maxErrorRate: config.maxErrorRate || '-',
   totalRequests: reqs.count || 0,
@@ -169,6 +187,7 @@ const html = `<!DOCTYPE html>
   .status-badge.pass { background: var(--green); }
   .status-badge.fail { background: var(--red); }
   .env-badge { padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 10.5px; letter-spacing: 0.05em; color: white; white-space: nowrap; }
+  .test-type-badge { padding: 5px 14px; border-radius: 14px; font-weight: 700; font-size: 11.5px; letter-spacing: 0.05em; color: white; white-space: nowrap; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px; align-items: start; }
   .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; min-width: 0; }
   .card h3 { margin: 0 0 12px 0; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dark); }
@@ -213,6 +232,7 @@ const html = `<!DOCTYPE html>
   </div>
   <div class="header-right">
     ${logoDataUri ? `<img class="logo" src="${logoDataUri}" alt="Company logo">` : ''}
+    <div class="test-type-badge" style="background:${data.testTypeInfo.color}">${data.testTypeInfo.label}</div>
     ${data.envInfo ? `<div class="env-badge" style="background:${data.envInfo.color}">${data.envInfo.label}</div>` : ''}
     <div class="status-badge ${data.overallPass ? 'pass' : 'fail'}">${data.overallPass ? '✓ PASS' : '✗ FAIL'}</div>
   </div>
@@ -245,8 +265,9 @@ const html = `<!DOCTYPE html>
 
   <div class="card">
     <h3>Test Configuration</h3>
+    ${data.testTypeLabel ? `<div class="config-row"><b>Test Type</b>${data.testTypeLabel}</div>` : ''}
     ${data.locationLabel ? `<div class="config-row"><b>Location</b>${data.locationLabel}</div>` : ''}
-    <div class="config-row"><b>Endpoint</b><div class="endpoint-box">${data.endpoint}</div></div>
+    <div class="config-row"><b>${data.endpointLabel}</b><div class="endpoint-box">${data.endpoint}</div></div>
     <div class="config-row"><b>Virtual Users</b>${data.vu}</div>
     <div class="config-row"><b>Response Threshold</b>p95 &lt; ${data.thresholdMs ?? '-'} ms</div>
   </div>
