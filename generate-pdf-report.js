@@ -121,9 +121,11 @@ const reportTitle = config.testType === 'multi' && config.endpoints
   ? `Multi-Endpoint Load Test (${config.endpoints.length} endpoints)`
   : (config.moduleName && config.sectionName && config.subsectionName)
     ? `${config.moduleName} — ${config.sectionName} — ${config.subsectionName}`
-    : (config.moduleName && config.subsectionName)
-      ? `${config.moduleName} — ${config.subsectionName}`
-      : 'API Load Test Dashboard';
+    : (config.moduleName && config.sectionName)
+      ? `${config.moduleName} — ${config.sectionName}`
+      : (config.moduleName && config.subsectionName)
+        ? `${config.moduleName} — ${config.subsectionName}`
+        : 'API Load Test Dashboard';
 
 const testTypeLabel = testTypeInfo.label;
 
@@ -206,7 +208,9 @@ doc.y = row1Y + row1H + GAP;
 
 const locationLabel = (config.moduleName && config.sectionName && config.subsectionName)
   ? `${config.moduleName} › ${config.sectionName} › ${config.subsectionName}`
-  : null;
+  : (config.moduleName && config.sectionName)
+    ? `${config.moduleName} › ${config.sectionName}`
+    : null;
 
 const endpointText = (config.testType === 'multi' && Array.isArray(config.endpoints))
   ? config.endpoints.map((e) => `[w${e.weight || 1}] ${e.method} ${e.url}`).join('   |   ')
