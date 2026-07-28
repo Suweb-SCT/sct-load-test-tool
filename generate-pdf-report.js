@@ -125,7 +125,9 @@ const reportTitle = config.testType === 'multi' && config.endpoints
       ? `${config.moduleName} — ${config.sectionName}`
       : (config.moduleName && config.subsectionName)
         ? `${config.moduleName} — ${config.subsectionName}`
-        : 'API Load Test Dashboard';
+        : config.moduleName
+          ? `${config.moduleName}`
+          : 'API Load Test Dashboard';
 
 const testTypeLabel = testTypeInfo.label;
 
