@@ -160,7 +160,7 @@ function svgBarChart(bars, thresholdValue) {
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="220" style="max-width:640px">${barsSvg}${thresholdSvg}</svg>`;
 }
 
-const checksGaugeColor = data.checksPassRate === 100 ? '#2E9E4F' : '#D9534F';
+const checksGaugeColor = data.checksPassRate >= 90 ? '#2E9E4F' : data.checksPassRate >= 50 ? '#E8A33D' : '#D9534F';
 const errorGaugeColor = data.errorPassed === false ? '#D9534F' : '#2E9E4F';
 
 const barChartSvg = svgBarChart([
