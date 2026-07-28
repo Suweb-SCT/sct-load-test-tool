@@ -63,7 +63,9 @@ const reportTitle = config.testType === 'multi' && config.endpoints
       ? `${config.moduleName} — ${config.sectionName}`
       : (config.moduleName && config.subsectionName)
         ? `${config.moduleName} — ${config.subsectionName}`
-        : 'API Load Test Dashboard';
+        : config.moduleName
+          ? `${config.moduleName}`
+          : 'API Load Test Dashboard';
 
 function getTestTypeInfo(testType) {
   if (testType === 'progressive') return { label: 'PROGRESSIVE STEP', color: '#FFA600' };
@@ -192,8 +194,6 @@ const html = `<!DOCTYPE html>
   .status-badge.fail { background: var(--red); }
   .env-badge { padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 10.5px; letter-spacing: 0.05em; color: white; white-space: nowrap; }
   .test-type-badge { padding: 5px 14px; border-radius: 14px; font-weight: 700; font-size: 11.5px; letter-spacing: 0.05em; color: white; white-space: nowrap; }
-  .download-btn { padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; color: white; background: var(--blue); text-decoration: none; white-space: nowrap; display: inline-block; }
-  .download-btn:hover { opacity: 0.9; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px; align-items: start; }
   .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; min-width: 0; }
   .card h3 { margin: 0 0 12px 0; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dark); }
@@ -241,7 +241,6 @@ const html = `<!DOCTYPE html>
     <div class="test-type-badge" style="background:${data.testTypeInfo.color}">${data.testTypeInfo.label}</div>
     ${data.envInfo ? `<div class="env-badge" style="background:${data.envInfo.color}">${data.envInfo.label}</div>` : ''}
     <div class="status-badge ${data.overallPass ? 'pass' : 'fail'}">${data.overallPass ? '✓ PASS' : '✗ FAIL'}</div>
-    <a class="download-btn" href="load-test-report.pdf" download>⬇ Download PDF</a>
   </div>
 </div>
 
