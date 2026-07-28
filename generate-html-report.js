@@ -49,10 +49,45 @@ function collectChecks(group, acc) {
   (group.groups ? Object.values(group.groups) : []).forEach((g) => collectChecks(g, acc));
   return acc;
 }
-const checksList = collectChecks(summary.root_group, []);
+const rawChecksList = collectChecks(summary.root_group, []);
+
+const CATEGORY_LABELS = {
+  network: 'Network / Timeout (never reached server)',
+  '4xx': 'Client errors (4xx \u2014 bad request, auth, not found)',
+  '5xx': 'Server errors (5xx \u2014 server broke while handling it)',
+};
+const ERRCAT_RE = /^(?:\[(.+?)\]\s*)?__errcat__:(network|4xx|5xx)$/;
+
+const checksList = [];
+const errCatRows = [];
+rawChecksList.forEach((c) => {
+  const m = ERRCAT_RE.exec(c.name || '');
+  if (m) {
+    const count = c.fails || 0;
+    if (count > 0) errCatRows.push({ endpointLabel: m[1] || null, category: m[2], count });
+  } else {
+    checksList.push(c);
+  }
+});
+
+const totalErrorCount = errCatRows.reduce((sum, r) => sum + r.count, 0);
+const hasEndpointLabels = errCatRows.some((r) => r.endpointLabel);
+const errorBreakdown = errCatRows.map((r) => ({
+  endpointLabel: r.endpointLabel,
+  label: CATEGORY_LABELS[r.category] || r.category,
+  count: r.count,
+  pct: totalErrorCount > 0 ? Math.round((r.count / totalErrorCount) * 1000) / 10 : 0,
+}));
 
 const thresholdMs = parseFloat((durationInfo.expressions[0] || '').match(/<\s*([\d.]+)/)?.[1]) || null;
-const checksPassRate = Math.round((checksAgg.rate || 0) * 100);
+const checksTotals = checksList.reduce((acc, c) => {
+  acc.passes += c.passes || 0;
+  acc.fails += c.fails || 0;
+  return acc;
+}, { passes: 0, fails: 0 });
+const checksPassRate = (checksTotals.passes + checksTotals.fails) > 0
+  ? Math.round((checksTotals.passes / (checksTotals.passes + checksTotals.fails)) * 100)
+  : 100;
 const errorRatePct = Math.round((reqFailed.rate || 0) * 10000) / 100;
 
 const reportTitle = config.testType === 'multi' && config.endpoints
@@ -63,7 +98,9 @@ const reportTitle = config.testType === 'multi' && config.endpoints
       ? `${config.moduleName} — ${config.sectionName}`
       : (config.moduleName && config.subsectionName)
         ? `${config.moduleName} — ${config.subsectionName}`
-        : 'API Load Test Dashboard';
+        : config.moduleName
+          ? `${config.moduleName}`
+          : 'API Load Test Dashboard';
 
 function getTestTypeInfo(testType) {
   if (testType === 'progressive') return { label: 'PROGRESSIVE STEP', color: '#FFA600' };
@@ -94,6 +131,8 @@ const data = {
   envInfo,
   locationLabel,
   testTypeLabel,
+  hasEndpointLabels,
+  errorBreakdown,
   testTypeInfo,
   endpoint: (config.testType === 'multi' && Array.isArray(config.endpoints))
     ? config.endpoints.map((e) => `[w${e.weight || 1}] ${e.method} ${e.url}`).join('<br>')
@@ -291,6 +330,17 @@ const html = `<!DOCTYPE html>
       </tbody>
     </table>
   </div>
+
+  ${data.errorBreakdown.length > 0 ? `
+  <div class="card wide-card">
+    <h3>Error Breakdown</h3>
+    <table>
+      <thead><tr>${data.hasEndpointLabels ? '<th>Endpoint</th>' : ''}<th>Error Type</th><th>Count</th></tr></thead>
+      <tbody>
+        ${data.errorBreakdown.map((e) => `<tr>${data.hasEndpointLabels ? `<td>${e.endpointLabel || '—'}</td>` : ''}<td class="fail-text">${e.label}</td><td class="fail-text">${e.count} (${e.pct}%)</td></tr>`).join('')}
+      </tbody>
+    </table>
+  </div>` : ''}
 
   <div class="card wide-card">
     <h3>Recommendations</h3>
