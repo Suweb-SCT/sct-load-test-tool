@@ -85,6 +85,23 @@ function saveModules(modules) {
 async function pickEndpoint() {
   const modules = loadModules();
   const moduleNames = Object.keys(modules);
+
+  if (moduleNames.length > 0) {
+    const firstModuleName = moduleNames[0];
+    const firstMod = modules[firstModuleName];
+    console.log(`\n   Current Base URL (${firstModuleName}): ${firstMod.baseUrl}`);
+    const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
+      'Use it as-is',
+      'Edit it (change the Base URL for this module)',
+    ]);
+    if (baseUrlChoice === 1) {
+      const newBaseUrl = await ask('   New Base URL');
+      firstMod.baseUrl = newBaseUrl;
+      saveModules(modules);
+      console.log(`   ✓ Updated Base URL for "${firstModuleName}".`);
+    }
+  }
+
   let moduleName;
   let moduleIsNew = false;
   if (moduleNames.length === 0) {
@@ -103,20 +120,6 @@ async function pickEndpoint() {
   }
 
   const mod = modules[moduleName];
-
-  if (!moduleIsNew) {
-    console.log(`\n   Current Base URL: ${mod.baseUrl}`);
-    const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
-      'Use it as-is',
-      'Edit it (change the Base URL for this module)',
-    ]);
-    if (baseUrlChoice === 1) {
-      const newBaseUrl = await ask('   New Base URL');
-      mod.baseUrl = newBaseUrl;
-      saveModules(modules);
-      console.log(`   ✓ Updated Base URL for "${moduleName}".`);
-    }
-  }
   const sectionNames = Object.keys(mod.sections);
   let sectionName;
   if (sectionNames.length === 0) {
