@@ -12,10 +12,6 @@ const TARGET_VU = parseInt(__ENV.TARGET_VU || '50', 10);
 const MAX_RESPONSE_TIME = parseInt(__ENV.MAX_RESPONSE_TIME || '500', 10);
 const MAX_ERROR_RATE = parseFloat(__ENV.MAX_ERROR_RATE || '1') / 100;
 
-// How long to stay at TARGET_VU, and how long to ramp back down to 0.
-// Defaults match the original hardcoded values, so normal/progressive
-// load tests behave exactly as before. Spike tests override these to
-// control how long the peak is held and how the cool-down looks.
 const HOLD_TIME = __ENV.SPIKE_HOLD || '1m';
 const RECOVERY_TIME = __ENV.RECOVERY_TIME || '30s';
 
@@ -24,10 +20,6 @@ const VALIDATE_FIELD = __ENV.VALIDATE_FIELD || '';
 const VALIDATE_MODE = __ENV.VALIDATE_MODE || 'exists'; // 'exists' | 'array' | 'equals'
 const VALIDATE_VALUE = __ENV.VALIDATE_VALUE || '';
 
-// Optional: a JSON array of { label, url, method, body, weight } to hit
-// SEVERAL different endpoints in the same test, mixed together, instead of
-// hammering just one. When not set (or invalid), falls back to the single
-// ENDPOINT/METHOD/BODY above exactly as before — fully backward-compatible.
 let ENDPOINT_LIST = null;
 try {
   const parsed = JSON.parse(__ENV.ENDPOINTS || '');
@@ -36,15 +28,10 @@ try {
   ENDPOINT_LIST = null;
 }
 
-// Reads a nested field out of a parsed JSON body using dot notation,
-// e.g. "data.items" reads body.data.items. Returns undefined if any
-// part of the path is missing.
 function getByPath(obj, path) {
   return path.split('.').filter(Boolean).reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
 }
 
-// Weighted random pick — an endpoint with weight 3 shows up ~3x as often
-// as one with weight 1. Missing/invalid weights default to 1.
 function pickWeighted(list) {
   const weights = list.map((e) => (Number(e.weight) > 0 ? Number(e.weight) : 1));
   const total = weights.reduce((a, b) => a + b, 0);
@@ -75,9 +62,6 @@ export default function () {
   };
   const targetMethod = (target.method || 'GET').toUpperCase();
   const targetBody = target.body || '{}';
-  // Prefix check names with the endpoint's label when mixing several
-  // endpoints, so the "Checks Breakdown" table shows which endpoint each
-  // check belongs to instead of one ambiguous "status is 2xx" row.
   const prefix = target.label ? `[${target.label}] ` : '';
 
   const params = {
@@ -101,6 +85,19 @@ export default function () {
   check(res, {
     [`${prefix}status is 2xx`]: (r) => r.status >= 200 && r.status < 300,
     [`${prefix}response time < ${MAX_RESPONSE_TIME}ms`]: (r) => r.timings.duration < MAX_RESPONSE_TIME,
+  });
+
+  // Categorize the failure type using k6's own per-check-name aggregation
+  // (the same mechanism the multi-endpoint "prefix" already relies on for
+  // Checks Breakdown) — so a multi-endpoint test automatically gets a
+  // PER-ENDPOINT error breakdown for free, with no extra metrics needed.
+  // Each check "fails" exactly when that error category occurred; the
+  // report reads the fail counts and hides this from the normal Checks
+  // Breakdown table via the "__errcat__:" marker in the name.
+  check(res, {
+    [`${prefix}__errcat__:network`]: (r) => r.status !== 0,
+    [`${prefix}__errcat__:4xx`]: (r) => !(r.status >= 400 && r.status < 500),
+    [`${prefix}__errcat__:5xx`]: (r) => !(r.status >= 500),
   });
 
   if (VALIDATE_ENABLED && VALIDATE_FIELD) {
