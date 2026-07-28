@@ -69,8 +69,6 @@ const thresholdMs = parseFloat((durationInfo.expressions[0] || '').match(/<\s*([
 const ORANGE = '#FFA600', BLUE = '#005981', GREEN = '#2E9E4F', RED = '#D9534F', PURPLE = '#6C5CE7';
 const DARK = '#2B2B2B', GRAY = '#8A8A8A', LIGHT_BG = '#F5F5F5', BORDER = '#E5E5E5';
 
-// A distinct color per test type so PDFs sitting side by side (or in an
-// inbox/folder) can be told apart at a glance without opening each one.
 function getTestTypeInfo(testType) {
   if (testType === 'progressive') return { label: 'PROGRESSIVE STEP', color: ORANGE };
   if (testType === 'spike') return { label: 'SPIKE TEST', color: RED };
@@ -79,7 +77,7 @@ function getTestTypeInfo(testType) {
 }
 const testTypeInfo = getTestTypeInfo(config.testType);
 
-const MARGIN = 40;
+const MARGIN = 46;
 const doc = new PDFDocument({ margin: MARGIN, size: 'A4', bufferPages: true });
 doc.pipe(fs.createWriteStream(OUTPUT_PATH));
 
@@ -121,11 +119,13 @@ if (hasLogo) {
 
 const reportTitle = config.testType === 'multi' && config.endpoints
   ? `Multi-Endpoint Load Test (${config.endpoints.length} endpoints)`
-  : (config.moduleName && config.sectionName)
-    ? `${config.moduleName} — ${config.sectionName}`
-    : (config.moduleName && config.subsectionName)
-      ? `${config.moduleName} — ${config.subsectionName}`
-      : 'API Load Test Dashboard';
+  : (config.moduleName && config.sectionName && config.subsectionName)
+    ? `${config.moduleName} — ${config.sectionName} — ${config.subsectionName}`
+    : (config.moduleName && config.sectionName)
+      ? `${config.moduleName} — ${config.sectionName}`
+      : (config.moduleName && config.subsectionName)
+        ? `${config.moduleName} — ${config.subsectionName}`
+        : 'API Load Test Dashboard';
 
 const testTypeLabel = testTypeInfo.label;
 
@@ -139,14 +139,11 @@ if (reportTitle !== 'API Load Test Dashboard') {
 doc.fillColor(GRAY).fontSize(8.5).font('Helvetica').text(new Date().toLocaleString(), { width: CONTENT_W, align: 'center' });
 doc.moveDown(0.25);
 
-// Prominent color-coded pill so this report's TYPE (Load / Progressive /
-// Spike / Multi-Endpoint) is obvious at a glance — helpful when several
-// PDFs are sitting in the same folder or inbox.
 (function drawTestTypeBadge() {
   const label = testTypeInfo.label;
   doc.font('Helvetica-Bold').fontSize(8.5);
   const textW = doc.widthOfString(label) + label.length * 0.4;
-  const padX = 10, padY = 4;
+  const padX = 14, padY = 6;
   const boxW = textW + padX * 2;
   const boxH = 14 + padY;
   const boxX = MARGIN + (CONTENT_W - boxW) / 2;
@@ -155,18 +152,18 @@ doc.moveDown(0.25);
   doc.fillColor('#FFFFFF').text(label, boxX, boxY + boxH / 2 - 5, { width: boxW, align: 'center', characterSpacing: 0.4 });
   doc.y = boxY + boxH;
 })();
-doc.moveDown(0.3);
+doc.moveDown(0.45);
 
 doc.fontSize(12).font('Helvetica-Bold').fillColor(overallPass ? GREEN : RED)
   .text(overallPass ? 'PASS  -  all thresholds met' : 'FAIL  -  one or more thresholds breached', { width: CONTENT_W, align: 'center' });
 
 const envInfo = detectEnvironment(config.endpoint);
 if (envInfo) {
-  doc.moveDown(0.15);
+  doc.moveDown(0.3);
   doc.fontSize(7.5).font('Helvetica-Bold').fillColor(envInfo.color)
     .text(`ENVIRONMENT: ${envInfo.label}`, { width: CONTENT_W, align: 'center', characterSpacing: 0.5 });
 }
-doc.moveDown(0.6);
+doc.moveDown(0.9);
 
 const row1Y = doc.y;
 const row1H = 112;
@@ -211,7 +208,9 @@ doc.y = row1Y + row1H + GAP;
 
 const locationLabel = (config.moduleName && config.sectionName && config.subsectionName)
   ? `${config.moduleName} › ${config.sectionName} › ${config.subsectionName}`
-  : null;
+  : (config.moduleName && config.sectionName)
+    ? `${config.moduleName} › ${config.sectionName}`
+    : null;
 
 const endpointText = (config.testType === 'multi' && Array.isArray(config.endpoints))
   ? config.endpoints.map((e) => `[w${e.weight || 1}] ${e.method} ${e.url}`).join('   |   ')

@@ -80,6 +80,23 @@ function saveModules(modules) {
 async function pickEndpoint() {
   const modules = loadModules();
   const moduleNames = Object.keys(modules);
+
+  if (moduleNames.length > 0) {
+    const firstModuleName = moduleNames[0];
+    const firstMod = modules[firstModuleName];
+    console.log(`\n   Current Base URL: ${firstMod.baseUrl}`);
+    const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
+      'Use it as-is',
+      'Edit it (change the Base URL for this module)',
+    ]);
+    if (baseUrlChoice === 1) {
+      const newBaseUrl = await ask('   New Base URL');
+      firstMod.baseUrl = newBaseUrl;
+      saveModules(modules);
+      console.log(`   ✓ Updated Base URL for "${firstModuleName}".`);
+    }
+  }
+
   let moduleName;
   let moduleIsNew = false;
   if (moduleNames.length === 0) {
@@ -98,20 +115,6 @@ async function pickEndpoint() {
   }
 
   const mod = modules[moduleName];
-
-  if (!moduleIsNew) {
-    console.log(`\n   Current Base URL: ${mod.baseUrl}`);
-    const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
-      'Use it as-is',
-      'Edit it (change the Base URL for this module)',
-    ]);
-    if (baseUrlChoice === 1) {
-      const newBaseUrl = await ask('   New Base URL');
-      mod.baseUrl = newBaseUrl;
-      saveModules(modules);
-      console.log(`   ✓ Updated Base URL for "${moduleName}".`);
-    }
-  }
   const sectionNames = Object.keys(mod.sections);
   let sectionName;
   if (sectionNames.length === 0) {
@@ -124,12 +127,37 @@ async function pickEndpoint() {
 
   const section = modules[moduleName].sections[sectionName];
   const subsectionNames = Object.keys(section.subsections);
-  const subOptions = [...subsectionNames, '+ Add a new Subsection'];
+  const SKIP_LABEL = 'Skip — use this Section directly (no Subsection)';
+  const subOptions = [...subsectionNames, SKIP_LABEL, '+ Add a new Subsection'];
   const subChoice = await askChoice(`      3) Which Subsection inside "${sectionName}"?`, subOptions);
 
-  let subsectionName;
+  let subsectionName = null;
+  let endpointPath;
+
   if (subChoice === subsectionNames.length) {
+    if (section.directPath) {
+      const currentFull = mod.baseUrl.replace(/\/$/, '') + section.directPath;
+      console.log(`\n   Saved endpoint: ${currentFull}`);
+      const keepOrEdit = await askChoice('   What do you want to do with this endpoint?', [
+        'Use it as-is',
+        'Edit it (update the saved API path)',
+      ]);
+      if (keepOrEdit === 1) {
+        const newPathRaw = await ask('   New API path');
+        section.directPath = stripAccidentalHost(newPathRaw, mod.baseUrl);
+        saveModules(modules);
+        console.log(`   ✓ Updated direct path for Section "${sectionName}".`);
+      }
+    } else {
+      const newPathRaw = await ask('   API path for this Section');
+      section.directPath = stripAccidentalHost(newPathRaw, mod.baseUrl);
+      saveModules(modules);
+      console.log(`   ✓ Saved direct path for Section "${sectionName}".`);
+    }
+    endpointPath = section.directPath;
+  } else if (subChoice === subsectionNames.length + 1) {
     subsectionName = await addNewSubsection(modules, moduleName, sectionName);
+    endpointPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
   } else {
     subsectionName = subsectionNames[subChoice];
     const currentPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
@@ -146,10 +174,11 @@ async function pickEndpoint() {
       saveModules(modules);
       console.log(`   ✓ Updated "${subsectionName}".`);
     }
+    endpointPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
   }
 
   return {
-    endpoint: mod.baseUrl.replace(/\/$/, '') + modules[moduleName].sections[sectionName].subsections[subsectionName],
+    endpoint: mod.baseUrl.replace(/\/$/, '') + endpointPath,
     moduleName,
     sectionName,
     subsectionName,
