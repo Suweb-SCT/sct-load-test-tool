@@ -60,9 +60,44 @@ function collectChecks(group, acc) {
   (group.groups ? Object.values(group.groups) : []).forEach((g) => collectChecks(g, acc));
   return acc;
 }
-const checksList = collectChecks(summary.root_group, []);
+const rawChecksList = collectChecks(summary.root_group, []);
 
-const checksPassRate = Math.round((checksAgg.rate || 0) * 100);
+const CATEGORY_LABELS = {
+  network: 'Network / Timeout (never reached server)',
+  '4xx': 'Client errors (4xx \u2014 bad request, auth, not found)',
+  '5xx': 'Server errors (5xx \u2014 server broke while handling it)',
+};
+const ERRCAT_RE = /^(?:\[(.+?)\]\s*)?__errcat__:(network|4xx|5xx)$/;
+
+const checksList = [];
+const errCatRows = [];
+rawChecksList.forEach((c) => {
+  const m = ERRCAT_RE.exec(c.name || '');
+  if (m) {
+    const count = c.fails || 0;
+    if (count > 0) errCatRows.push({ endpointLabel: m[1] || null, category: m[2], count });
+  } else {
+    checksList.push(c);
+  }
+});
+
+const totalErrorCount = errCatRows.reduce((sum, r) => sum + r.count, 0);
+const hasEndpointLabels = errCatRows.some((r) => r.endpointLabel);
+const errorBreakdown = errCatRows.map((r) => ({
+  endpointLabel: r.endpointLabel,
+  label: CATEGORY_LABELS[r.category] || r.category,
+  count: r.count,
+  pct: totalErrorCount > 0 ? Math.round((r.count / totalErrorCount) * 1000) / 10 : 0,
+}));
+
+const checksTotals = checksList.reduce((acc, c) => {
+  acc.passes += c.passes || 0;
+  acc.fails += c.fails || 0;
+  return acc;
+}, { passes: 0, fails: 0 });
+const checksPassRate = (checksTotals.passes + checksTotals.fails) > 0
+  ? Math.round((checksTotals.passes / (checksTotals.passes + checksTotals.fails)) * 100)
+  : 100;
 const errorRatePct = Math.round((reqFailed.rate || 0) * 10000) / 100;
 const thresholdMs = parseFloat((durationInfo.expressions[0] || '').match(/<\s*([\d.]+)/)?.[1]);
 
@@ -95,6 +130,14 @@ function cardBox(x, y, w, h, title) {
   return { innerX: x + 12, innerY: y + (title ? 26 : 12), innerW: w - 24 };
 }
 
+function ensureSpace(neededHeight) {
+  const bottomLimit = doc.page.height - doc.page.margins.bottom;
+  if (doc.y + neededHeight > bottomLimit) {
+    doc.addPage();
+    doc.y = MARGIN;
+  }
+}
+
 function drawGauge(cx, cy, r, value, color) {
   const clamped = Math.max(0, Math.min(100, value));
   const endAngle = Math.PI + (Math.PI * clamped / 100);
@@ -125,7 +168,9 @@ const reportTitle = config.testType === 'multi' && config.endpoints
       ? `${config.moduleName} — ${config.sectionName}`
       : (config.moduleName && config.subsectionName)
         ? `${config.moduleName} — ${config.subsectionName}`
-        : 'API Load Test Dashboard';
+        : config.moduleName
+          ? `${config.moduleName}`
+          : 'API Load Test Dashboard';
 
 const testTypeLabel = testTypeInfo.label;
 
@@ -165,6 +210,7 @@ if (envInfo) {
 }
 doc.moveDown(0.9);
 
+ensureSpace(112 + GAP);
 const row1Y = doc.y;
 const row1H = 112;
 const cardW3 = (CONTENT_W - GAP * 2) / 3;
@@ -231,7 +277,9 @@ const locationRowH = locationLabel ? rowGap : 0;
 const endpointLabel = config.testType === 'multi' ? 'Endpoints' : 'Endpoint';
 const cfgCardH = titleOffset + testTypeRowH + locationRowH + Math.max(12, endpointHeight) + rowGap + 12 + rowGap + 12 + bottomPadding;
 
-const cfg = cardBox(MARGIN, doc.y, CONTENT_W, cfgCardH, 'Test Configuration');
+ensureSpace(cfgCardH + GAP);
+const cfgTop = doc.y;
+const cfg = cardBox(MARGIN, cfgTop, CONTENT_W, cfgCardH, 'Test Configuration');
 let cfgY0 = cfg.innerY;
 if (testTypeLabel) {
   doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text('Test Type', cfg.innerX, cfgY0, { width: 90 });
@@ -258,10 +306,12 @@ doc.font('Helvetica').fontSize(8).fillColor(DARK)
   .text(`${durationInfo.expressions.map(friendlyThreshold).join(', ') || '-'}  |  ${errorInfo.expressions.map(friendlyThreshold).join(', ') || '-'}`,
     cfg.innerX + 90, cfgY2, { width: cfg.innerW - 90 });
 
-doc.y = row1Y + row1H + GAP + cfgCardH + GAP;
+doc.y = cfgTop + cfgCardH + GAP;
 
 const chartCardH = 150;
-const chart = cardBox(MARGIN, doc.y, CONTENT_W, chartCardH, 'Response Time vs Threshold (ms)');
+ensureSpace(chartCardH + GAP);
+const chartTop = doc.y;
+const chart = cardBox(MARGIN, chartTop, CONTENT_W, chartCardH, 'Response Time vs Threshold (ms)');
 
 if (thresholdMs) {
   doc.fontSize(7.5).fillColor(DARK).text(`- - -  Threshold: ${thresholdMs}ms`, chart.innerX, chart.innerY);
@@ -294,12 +344,14 @@ if (thresholdMs) {
   doc.undash();
 }
 
-doc.y = row1Y + row1H + GAP + cfgCardH + GAP + chartCardH + GAP;
+doc.y = chartTop + chartCardH + GAP;
 
 if (checksList.length > 0) {
   const rowH = 16;
   const tableCardH = 34 + checksList.length * rowH + 8;
-  const tbl = cardBox(MARGIN, doc.y, CONTENT_W, tableCardH, 'Checks Breakdown');
+  ensureSpace(tableCardH + GAP);
+  const tblTop = doc.y;
+  const tbl = cardBox(MARGIN, tblTop, CONTENT_W, tableCardH, 'Checks Breakdown');
 
   const col1 = tbl.innerW * 0.6, col2 = tbl.innerW * 0.2, col3 = tbl.innerW * 0.2;
   let ty = tbl.innerY;
@@ -323,7 +375,39 @@ if (checksList.length > 0) {
     ty += rowH;
   });
 
-  doc.y = row1Y + row1H + GAP + cfgCardH + GAP + chartCardH + GAP + tableCardH + GAP;
+  doc.y = tblTop + tableCardH + GAP;
+}
+
+const errRowH = 14;
+const errorCardH = errorBreakdown.length > 0 ? (32 + errorBreakdown.length * errRowH + 6) : 0;
+if (errorBreakdown.length > 0) {
+  ensureSpace(errorCardH + GAP);
+  const errCardY = doc.y;
+  const errCard = cardBox(MARGIN, errCardY, CONTENT_W, errorCardH, 'Error Breakdown');
+  const ecol0 = hasEndpointLabels ? errCard.innerW * 0.28 : 0;
+  const ecol1 = errCard.innerW * (hasEndpointLabels ? 0.5 : 0.72);
+  const ecol2 = errCard.innerW - ecol0 - ecol1;
+  let ety = errCard.innerY;
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(DARK);
+  if (hasEndpointLabels) doc.text('Endpoint', errCard.innerX, ety, { width: ecol0 });
+  doc.text('Error Type', errCard.innerX + ecol0, ety, { width: ecol1 });
+  doc.text('Count', errCard.innerX + ecol0 + ecol1, ety, { width: ecol2 });
+  ety += 13;
+  doc.moveTo(errCard.innerX, ety).lineTo(errCard.innerX + ecol0 + ecol1 + ecol2, ety).strokeColor(BORDER).stroke();
+  ety += 3;
+
+  doc.font('Helvetica').fontSize(8);
+  errorBreakdown.forEach((e, idx) => {
+    if (idx % 2 === 1) {
+      doc.rect(errCard.innerX - 4, ety - 2, ecol0 + ecol1 + ecol2 + 8, errRowH).fillColor(LIGHT_BG).fill();
+    }
+    if (hasEndpointLabels) doc.fillColor(DARK).text(e.endpointLabel || '—', errCard.innerX, ety, { width: ecol0 });
+    doc.fillColor(RED).text(e.label, errCard.innerX + ecol0, ety, { width: ecol1 });
+    doc.fillColor(RED).text(`${e.count}  (${e.pct}%)`, errCard.innerX + ecol0 + ecol1, ety, { width: ecol2 });
+    ety += errRowH;
+  });
+
+  doc.y = errCardY + errorCardH + GAP;
 }
 
 const recs = [];
@@ -342,14 +426,17 @@ const recTexts = recs.map((r, i) => recs.length > 1 ? `${i + 1}. ${r}` : `-  ${r
 let recHeight = 20;
 recTexts.forEach((r) => { recHeight += doc.heightOfString(r, { width: CONTENT_W - 24 }) + 6; });
 
-const rec = cardBox(MARGIN, doc.y, CONTENT_W, recHeight, 'Recommendations');
+ensureSpace(recHeight + GAP);
+const recTop = doc.y;
+const rec = cardBox(MARGIN, recTop, CONTENT_W, recHeight, 'Recommendations');
 let ry = rec.innerY;
 recTexts.forEach((r) => {
   doc.font('Helvetica').fontSize(8.5).fillColor(DARK).text(r, rec.innerX, ry, { width: rec.innerW });
   ry += doc.heightOfString(r, { width: rec.innerW }) + 6;
 });
 
-doc.y = row1Y + row1H + GAP + cfgCardH + GAP + chartCardH + GAP + (checksList.length > 0 ? (34 + checksList.length * 16 + 8 + GAP) : 0) + recHeight + 14;
+doc.y = recTop + recHeight + 14;
+ensureSpace(14);
 doc.fontSize(7.5).fillColor(GRAY).font('Helvetica-Oblique').text('Generated automatically after each k6 load test run.', MARGIN, doc.y, { width: CONTENT_W, align: 'center' });
 
 const pageRange = doc.bufferedPageRange();
