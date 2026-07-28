@@ -57,8 +57,8 @@ const errorRatePct = Math.round((reqFailed.rate || 0) * 10000) / 100;
 
 const reportTitle = config.testType === 'multi' && config.endpoints
   ? `Multi-Endpoint Load Test (${config.endpoints.length} endpoints)`
-  : (config.moduleName && config.sectionName && config.subsectionName)
-    ? `${config.moduleName} — ${config.sectionName} — ${config.subsectionName}`
+  : (config.moduleName && config.sectionName)
+    ? `${config.moduleName} — ${config.sectionName}`
     : (config.moduleName && config.subsectionName)
       ? `${config.moduleName} — ${config.subsectionName}`
       : 'API Load Test Dashboard';
