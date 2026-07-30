@@ -200,13 +200,13 @@ doc.moveDown(0.25);
 doc.moveDown(0.45);
 
 doc.fontSize(12).font('Helvetica-Bold').fillColor(overallPass ? GREEN : RED)
-  .text(overallPass ? 'PASS  -  all thresholds met' : 'FAIL  -  one or more thresholds breached', { width: CONTENT_W, align: 'center' });
+  .text(overallPass ? 'PASS  -  all thresholds met' : 'FAIL  -  one or more thresholds breached', MARGIN, doc.y, { width: CONTENT_W, align: 'center' });
 
 const envInfo = detectEnvironment(config.endpoint);
 if (envInfo) {
   doc.moveDown(0.3);
-  doc.fontSize(7.5).font('Helvetica-Bold').fillColor(envInfo.color)
-    .text(`ENVIRONMENT: ${envInfo.label}`, { width: CONTENT_W, align: 'center', characterSpacing: 0.5 });
+ doc.fontSize(7.5).font('Helvetica-Bold').fillColor(envInfo.color)
+    .text(`ENVIRONMENT: ${envInfo.label}`, MARGIN, doc.y, { width: CONTENT_W, align: 'center', characterSpacing: 0.5 });
 }
 doc.moveDown(0.9);
 
