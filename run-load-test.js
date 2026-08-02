@@ -41,65 +41,115 @@ async function askChoice(question, options) {
 
 function loadModules() {
   if (!fs.existsSync(MODULES_PATH)) return {};
-  let modules;
+  let data;
   try {
-    modules = JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8'));
+    data = JSON.parse(fs.readFileSync(MODULES_PATH, 'utf-8'));
   } catch (e) {
     console.log('   ⚠️  modules.json is corrupted or unreadable, starting fresh.');
     return {};
   }
-  let migrated = false;
-  Object.keys(modules).forEach((modName) => {
-    const mod = modules[modName];
-    if (mod.endpoints && !mod.sections) {
-      mod.sections = { General: { subsections: mod.endpoints } };
-      delete mod.endpoints;
-      migrated = true;
-    }
-    if (!mod.sections) mod.sections = {};
-  });
-  if (migrated) {
-    console.log('   ℹ️  Upgraded modules.json to the new Module → Section → Subsection format (old endpoints moved under a "General" section).');
-    saveModules(modules);
+
+  // Migrate OLDER module-level formats (no "Server" layer yet) into the new
+  // Server → Module → Section → Subsection format. A file is already in
+  // the new format once every top-level entry has a "modules" object.
+  const alreadyServerFormat = Object.values(data).length > 0
+    && Object.values(data).every((v) => v && typeof v === 'object' && v.modules && typeof v.modules === 'object');
+
+  if (!alreadyServerFormat && Object.keys(data).length > 0) {
+    // First, upgrade any 2-level (module -> endpoints) modules to 3-level
+    // (module -> sections -> subsections), exactly as before.
+    Object.keys(data).forEach((modName) => {
+      const mod = data[modName];
+      if (mod.endpoints && !mod.sections) {
+        mod.sections = { General: { subsections: mod.endpoints } };
+        delete mod.endpoints;
+      }
+      if (!mod.sections) mod.sections = {};
+    });
+
+    // Now group the old top-level modules into servers, one server per
+    // distinct Base URL found (most setups will end up with just one).
+    const servers = {};
+    Object.keys(data).forEach((modName) => {
+      const mod = data[modName];
+      const baseUrl = mod.baseUrl || '';
+      const serverKey = baseUrl || 'Default Server';
+      if (!servers[serverKey]) servers[serverKey] = { baseUrl, modules: {} };
+      const { baseUrl: _drop, ...rest } = mod;
+      servers[serverKey].modules[modName] = rest;
+    });
+
+    console.log('   ℹ️  Upgraded modules.json to the new Server → Module → Section → Subsection format (existing modules kept under a server named after their old Base URL).');
+    saveModules(servers);
+    return servers;
   }
-  return modules;
+
+  return data;
 }
 
-function saveModules(modules) {
-  fs.writeFileSync(MODULES_PATH, JSON.stringify(modules, null, 2), 'utf-8');
+function saveModules(data) {
+  fs.writeFileSync(MODULES_PATH, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+async function pickServer(data) {
+  const serverKeys = Object.keys(data);
+  let serverKey;
+
+  if (serverKeys.length === 0) {
+    console.log('\n🖥️  No servers saved yet — let\'s add your first one.');
+    serverKey = await addNewServer(data);
+  } else {
+    const options = [...serverKeys, '+ Add a new server'];
+    const choice = await askChoice('1) Which server do you want to test?', options);
+    if (choice === serverKeys.length) {
+      serverKey = await addNewServer(data);
+    } else {
+      serverKey = serverKeys[choice];
+      const server = data[serverKey];
+      console.log(`\n   Current Base URL: ${server.baseUrl}`);
+      const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
+        'Use it as-is',
+        'Edit it (change the Base URL for this server)',
+      ]);
+      if (baseUrlChoice === 1) {
+        const newBaseUrl = await ask('   New Base URL');
+        server.baseUrl = newBaseUrl;
+        saveModules(data);
+        console.log(`   ✓ Updated Base URL for "${serverKey}".`);
+      }
+    }
+  }
+
+  return serverKey;
+}
+
+async function addNewServer(data) {
+  const serverName = await ask('   New server name (e.g. "Client A - Production", or just paste the URL)');
+  const baseUrl = await ask('   Base URL for this server');
+  data[serverName] = { baseUrl, modules: {} };
+  saveModules(data);
+  console.log(`   ✓ Added server "${serverName}" — it starts with no modules saved yet.`);
+  return serverName;
 }
 
 async function pickEndpoint() {
-  const modules = loadModules();
+  const data = loadModules();
+  const serverKey = await pickServer(data);
+  const server = data[serverKey];
+  const modules = server.modules;
   const moduleNames = Object.keys(modules);
-
-  if (moduleNames.length > 0) {
-    const firstModuleName = moduleNames[0];
-    const firstMod = modules[firstModuleName];
-    console.log(`\n   Current Base URL: ${firstMod.baseUrl}`);
-    const baseUrlChoice = await askChoice('   What do you want to do with this Base URL?', [
-      'Use it as-is',
-      'Edit it (change the Base URL for this module)',
-    ]);
-    if (baseUrlChoice === 1) {
-      const newBaseUrl = await ask('   New Base URL');
-      firstMod.baseUrl = newBaseUrl;
-      saveModules(modules);
-      console.log(`   ✓ Updated Base URL for "${firstModuleName}".`);
-    }
-  }
 
   let moduleName;
   let moduleIsNew = false;
   if (moduleNames.length === 0) {
-    console.log('\n📦  No modules saved yet — let\'s add your first one.');
-    moduleName = await addNewModule(modules);
+    console.log('\n📦  No modules saved yet for this server — let\'s add your first one.');
+    moduleName = await addNewModule(modules, data, server.baseUrl);
     moduleIsNew = true;
   } else {
     const options = [...moduleNames, '+ Add a new module'];
-    const choice = await askChoice('1) Which module do you want to test?', options);
+    const choice = await askChoice('2) Which module do you want to test?', options);
     if (choice === moduleNames.length) {
-      moduleName = await addNewModule(modules);
+      moduleName = await addNewModule(modules, data, server.baseUrl);
       moduleIsNew = true;
     } else {
       moduleName = moduleNames[choice];
@@ -108,32 +158,19 @@ async function pickEndpoint() {
 
   const mod = modules[moduleName];
   const sectionNames = Object.keys(mod.sections);
-  let sectionName;
-  if (sectionNames.length === 0) {
-    sectionName = await addNewSection(modules, moduleName);
-  } else {
-    const secOptions = [...sectionNames, '+ Add a new Section'];
-    const secChoice = await askChoice(`   2) Which Section inside "${moduleName}"?`, secOptions);
-    if (secChoice === sectionNames.length) {
-      sectionName = await addNewSection(modules, moduleName);
-    } else {
-      sectionName = sectionNames[secChoice];
-    }
-  }
+  const SKIP_LABEL = 'Skip — use this Module directly (no Section)';
+  const secOptions = [...sectionNames, SKIP_LABEL, '+ Add a new Section'];
+  const secChoice = await askChoice(`   3) Which Section inside "${moduleName}"?`, secOptions);
 
-  const section = modules[moduleName].sections[sectionName];
-  const subsectionNames = Object.keys(section.subsections);
-  const SKIP_LABEL = 'Skip — use this Section directly (no Subsection)';
-  const subOptions = [...subsectionNames, SKIP_LABEL, '+ Add a new Subsection'];
-  const subChoice = await askChoice(`      3) Which Subsection inside "${sectionName}"?`, subOptions);
-
+  let sectionName = null;
   let subsectionName = null;
   let endpointPath;
 
-  if (subChoice === subsectionNames.length) {
-    // Skip chosen — the Section itself carries a direct path, no Subsection needed.
-    if (section.directPath) {
-      const currentFull = mod.baseUrl.replace(/\/$/, '') + section.directPath;
+  if (secChoice === sectionNames.length) {
+    // Skip chosen — the Module itself carries a direct path, no Section
+    // (and therefore no Subsection) needed.
+    if (mod.directPath) {
+      const currentFull = server.baseUrl.replace(/\/$/, '') + mod.directPath;
       console.log(`\n   Saved endpoint: ${currentFull}`);
       const keepOrEdit = await askChoice('   What do you want to do with this endpoint?', [
         'Use it as-is',
@@ -141,68 +178,86 @@ async function pickEndpoint() {
       ]);
       if (keepOrEdit === 1) {
         const newPathRaw = await ask('   New API path');
-        section.directPath = stripAccidentalHost(newPathRaw, mod.baseUrl);
-        saveModules(modules);
-        console.log(`   ✓ Updated direct path for Section "${sectionName}".`);
+        mod.directPath = stripAccidentalHost(newPathRaw, server.baseUrl);
+        saveModules(data);
+        console.log(`   ✓ Updated direct path for Module "${moduleName}".`);
       }
     } else {
-      const newPathRaw = await ask('   API path for this Section');
-      section.directPath = stripAccidentalHost(newPathRaw, mod.baseUrl);
-      saveModules(modules);
-      console.log(`   ✓ Saved direct path for Section "${sectionName}".`);
+      const newPathRaw = await ask('   API path for this Module');
+      mod.directPath = stripAccidentalHost(newPathRaw, server.baseUrl);
+      saveModules(data);
+      console.log(`   ✓ Saved direct path for Module "${moduleName}".`);
     }
-    endpointPath = section.directPath;
-  } else if (subChoice === subsectionNames.length + 1) {
-    subsectionName = await addNewSubsection(modules, moduleName, sectionName);
+    endpointPath = mod.directPath;
+  } else if (secChoice === sectionNames.length + 1) {
+    const created = await addNewSection(modules, moduleName, data, server.baseUrl);
+    sectionName = created.sectionName;
+    subsectionName = created.subsectionName;
     endpointPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
   } else {
-    subsectionName = subsectionNames[subChoice];
-    const currentPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
-    const currentFull = mod.baseUrl.replace(/\/$/, '') + currentPath;
-    console.log(`\n   Saved endpoint: ${currentFull}`);
-    const keepOrEdit = await askChoice('   What do you want to do with this endpoint?', [
-      'Use it as-is',
-      'Edit it (update the saved API path)',
-    ]);
-    if (keepOrEdit === 1) {
-      const newPathRaw = await ask('   New API path');
-      const newPath = stripAccidentalHost(newPathRaw, mod.baseUrl);
-      modules[moduleName].sections[sectionName].subsections[subsectionName] = newPath;
-      saveModules(modules);
-      console.log(`   ✓ Updated "${subsectionName}".`);
+    sectionName = sectionNames[secChoice];
+    const section = modules[moduleName].sections[sectionName];
+    const subsectionNames = Object.keys(section.subsections);
+    const subOptions = [...subsectionNames, '+ Add a new Subsection'];
+    const subChoice = await askChoice(`      4) Which Subsection inside "${sectionName}"?`, subOptions);
+
+    if (subChoice === subsectionNames.length) {
+      subsectionName = await addNewSubsection(modules, moduleName, sectionName, data, server.baseUrl);
+      endpointPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
+    } else {
+      subsectionName = subsectionNames[subChoice];
+      // Existing subsection picked — let the user keep it as-is or edit it,
+      // rather than being stuck with whatever was saved before.
+      const currentPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
+      const currentFull = server.baseUrl.replace(/\/$/, '') + currentPath;
+      console.log(`\n   Saved endpoint: ${currentFull}`);
+      const keepOrEdit = await askChoice('   What do you want to do with this endpoint?', [
+        'Use it as-is',
+        'Edit it (update the saved API path)',
+      ]);
+      if (keepOrEdit === 1) {
+        const newPathRaw = await ask('   New API path');
+        const newPath = stripAccidentalHost(newPathRaw, server.baseUrl);
+        modules[moduleName].sections[sectionName].subsections[subsectionName] = newPath;
+        saveModules(data);
+        console.log(`   ✓ Updated "${subsectionName}".`);
+      }
+      endpointPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
     }
-    endpointPath = modules[moduleName].sections[sectionName].subsections[subsectionName];
   }
 
-  const fullEndpoint = mod.baseUrl.replace(/\/$/, '') + endpointPath;
+  const fullEndpoint = server.baseUrl.replace(/\/$/, '') + endpointPath;
   return { endpoint: fullEndpoint, moduleName, sectionName, subsectionName };
 }
 
-async function addNewModule(modules) {
+async function addNewModule(modules, data, baseUrl) {
   const moduleName = await ask('   New module name');
-  const baseUrl = await ask('   Base URL for this module');
-  modules[moduleName] = { baseUrl, sections: {} };
-  await addNewSection(modules, moduleName);
+  modules[moduleName] = { sections: {} };
+  await addNewSection(modules, moduleName, data, baseUrl);
   return moduleName;
 }
 
-async function addNewSection(modules, moduleName) {
+async function addNewSection(modules, moduleName, data, baseUrl) {
   const sectionName = await ask('   New Section name');
   modules[moduleName].sections[sectionName] = { subsections: {} };
-  await addNewSubsection(modules, moduleName, sectionName);
-  return sectionName;
+  const subsectionName = await addNewSubsection(modules, moduleName, sectionName, data, baseUrl);
+  return { sectionName, subsectionName };
 }
 
-async function addNewSubsection(modules, moduleName, sectionName) {
+async function addNewSubsection(modules, moduleName, sectionName, data, baseUrl) {
   const subsectionName = await ask('   New Subsection name');
   let endpointPath = await ask('   API path');
-  endpointPath = stripAccidentalHost(endpointPath, modules[moduleName].baseUrl);
+  endpointPath = stripAccidentalHost(endpointPath, baseUrl);
   modules[moduleName].sections[sectionName].subsections[subsectionName] = endpointPath;
-  saveModules(modules);
+  saveModules(data);
   console.log(`   ✓ Saved "${subsectionName}" under Section "${sectionName}" (Module "${moduleName}") — it'll show up as a choice next time.`);
   return subsectionName;
 }
 
+// If someone pastes a full URL (including the base URL, or any http:// / https://
+// host) into the "API path" prompt by mistake, the base URL would get prepended
+// a second time later (e.g. "http://host.comhttp://host.com/api/x"), which fails
+// DNS lookup. Detect that and strip the accidental host so only the path remains.
 function stripAccidentalHost(inputPath, baseUrl) {
   if (!/^https?:\/\//i.test(inputPath)) return inputPath;
   const base = (baseUrl || '').replace(/\/$/, '');
@@ -220,6 +275,9 @@ function stripAccidentalHost(inputPath, baseUrl) {
   }
 }
 
+// Windows: try to launch Google Chrome directly (Chrome can display both
+// .html and .pdf files). Falls back to explorer.exe (default app) if Chrome
+// isn't found at any of the usual install locations.
 const CHROME_PATHS_WIN = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
